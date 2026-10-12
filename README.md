@@ -1,46 +1,78 @@
 # Merkle Tree Commitment
 
-应用密码学作业一：先用一个短摘要固定一组消息，之后开封全部消息或其中一个位置，让别人核对内容与原承诺一致。实现使用手写 SHA3-256 和每叶子独立随机值，包含绑定性、隐藏性分析及性能评估。
+应用密码学课程作业：用手写 SHA3-256 和 Merkle 树承诺一组消息，支持单项、批量和完整开封。保留 Python 实现，并提供自写 C 哈希后端。
 
-## 先运行一个例子
+## 安装与演示
 
-需要 Python 3.9 或更新版本，无第三方运行时依赖。在仓库根目录执行 `PYTHONPATH=src python3 -B -m examples.demo`。
+需要 Python 3.9+；Mac 构建 C 模块需要 Xcode Command Line Tools。以下命令均在项目根目录执行。
 
-演示使用方案文档中的三个消息“6”“9”“0”，开封位置 2。你会看到承诺摘要、107 B 的证明，以及开封结果：有效单项为 True、篡改消息为 False、完整和批量开封均为 True。批量示例开封位置 0、2，证明为 157 B。每次运行都会生成新的随机值，所以承诺摘要通常不同。
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[experiments]'
+PYTHONPATH=src .venv/bin/python -B -m examples.demo
+```
 
-## 阅读与人工审查
-
-- 先读 [方案设计](docs/方案设计.md)：从三个消息的小树理解承诺、认证路径、安全分析和 SHA3。
-- 再读实现：`protocol.py` 定义字段和编码，`tree.py` 实现建树与开封，`sha3.py` 实现哈希。
-- 对照 `correctness/` 中的独立递归规格、字节往返和官方哈希答案，核对实现是否符合定义。
-- 最后读 [实验结果](results/实验结果.md)，了解分布诊断、缩微模型和开销曲线；[作业要求](docs/作业要求.md) 保留课程原文。
-
-`commit(messages)` 返回公开承诺和承诺方的树状态；`tree.open(index)` 返回消息与证明；`verify()` 使用验证者此前保存的承诺检查消息和位置。批量开封使用 `tree.open_many(indices)` 与 `verify_many(commitment, indices, messages, proof)`；indices 严格递增，批量消息逐项对应。完整开封使用 `tree.open_all()` 与 `verify_all()`。协议细节和安全假设集中在方案设计中。
+演示包含有效开封、篡改拒绝、批量开封和完整开封。
 
 ## 测试与实验
 
-以下命令都在仓库根目录执行：
+### 正确性检查
 
-- 基干正确性回归：`PYTHONPATH=src python3 -B -m unittest discover -s correctness -v`。
-- 绘图库安装（只用于实验）：先运行 `python3 -m venv .venv`，再运行 `.venv/bin/python -m pip install '.[experiments]'`。
-- 单叶 A/B/C/D 及树级 A′/B′/C′/D′：`PYTHONPATH=src .venv/bin/python -B experiments/distribution.py`。
-- 性能实验 P1–P3：`PYTHONPATH=src .venv/bin/python -B experiments/performance.py`。
+同一套测试分别检查 Python 和 C 后端，包括官方哈希向量、差分测试及 Merkle 开封验证。
 
-P4 单独运行：`PYTHONPATH=src .venv/bin/python -B experiments/performance.py --batchproof-only`，生成 `results/batchproof-performance.json` 和三张 P4 图，保留 P1–P3 数据。重绘时再加 `--from-json results/batchproof-performance.json`；`--large-timing` 才开启更大 k 的重复计时。较大的原始分布和 batch proof 数据仅保存在本地，不纳入 Git。
+```sh
+PYTHONPATH=src .venv/bin/python -B -m unittest discover -s correctness -v
+MTC_SHA3_BACKEND=c PYTHONPATH=src .venv/bin/python -B -m unittest discover -s correctness -v
+```
 
-先执行五项基干测试，再依次运行两个实验脚本。性能采样期间不要并行运行其他实验。正式实验使用手写 Python SHA3，耗时可能达到数十分钟；输出包括 `results/distribution.json`、`results/performance.json`、`results/batchproof-performance.json` 和 `docs/assets/experiments/` 中的十四幅 SVG。P1–P3 保留九组计时，P4 小 k 九组、大 k 三组，均以中位数和四分位区间绘图；完整口径见方案设计。`-B` 用于避免生成 Python 临时文件。
+### 运行实验
 
-已有完整分布数据时，可添加 `--tree-only` 只补跑 B′/C′/D′，保留原样本并统一重绘。原 E 已改名 A′，数据和传播实验沿用。
+先用 quick 检查流程：第一条运行八个密码分布实验，第二条运行 P1–P4 性能实验。
 
-仅检查脚本能否运行时，在脚本命令后加 `--quick --output-dir /tmp/mtc-smoke --figure-dir /tmp/mtc-smoke/figures`，避免用小样本覆盖正式结果。只重画已有数据时，分别添加 `--from-json results/distribution.json` 或 `--from-json results/performance.json`，不会重新采样。
+```sh
+PYTHONPATH=src .venv/bin/python -B experiments/distribution.py --scale quick
+PYTHONPATH=src .venv/bin/python -B experiments/performance.py --scale quick
+```
 
-每个实验类的 docstring 标明参数范围、缩小版运行方式，以及在实现 C 语言哈希后端的前提下可扩大的范围。C 语言后端保留 TODO。
+省略 `--scale quick` 即为 Python/mid 正式规模。使用 C 大规模实验：
 
-batch proof（批量证明）已实现。
+```sh
+MTC_SHA3_BACKEND=c PYTHONPATH=src .venv/bin/python -B experiments/distribution.py --scale large
+MTC_SHA3_BACKEND=c PYTHONPATH=src .venv/bin/python -B experiments/performance.py --scale large
+```
 
-全部密码运算使用课程手写 SHA3。
+后端默认 Python，若选 C，C 未构建时直接报错；规模可选 quick/mid/large，两种后端均默认 mid。
 
-需要在其他程序中导入时，可在自己的虚拟环境运行 `python3 -m pip install -e .` 做可编辑安装。上面的源码运行命令不需要安装；打包工具可能需要获取 setuptools。
+正式实验较慢，请按顺序运行，不要并行；Python 长任务会要求确认，同组重跑会覆盖运行产物。
+
+只跑批量证明的性能时，在 performance 命令后加 `--batchproof-only`；只跑树级别的实验 B′/C′/D′ 时，在 distribution 命令后加 `--tree-only`（需要已有同组数据）。
+
+### 只重绘结果图表，不重新实验
+
+```sh
+PYTHONPATH=src .venv/bin/python -B experiments/distribution.py --from-json all-outputs/python-mid/jsons/distribution.json
+PYTHONPATH=src .venv/bin/python -B experiments/performance.py --from-json all-outputs/python-mid/jsons/performance.json
+PYTHONPATH=src .venv/bin/python -B experiments/performance.py --batchproof-only --from-json all-outputs/python-mid/jsons/batchproof-performance.json
+```
+
+为 C 哈希后端重绘图表时，把路径中的 `python-mid` 换成 `c-large`。较大的原始 JSON 仅保存在本地；若尚无数据，需先运行对应实验。
+
+固定规模的 Python/C 后端对比是一个独立工具：
+
+```sh
+PYTHONPATH=src .venv/bin/python -B tools/compare_backends.py
+```
+
+## 结果与阅读
+
+- [方案设计](docs/方案设计.md)：算法、安全分析及 Python 教学参考结果。
+- [C 扩展介绍及次要组实验结果](docs/C扩展介绍及次要组实验结果.md)：C 实现、大规模结果及噪声说明。
+- 运行原始结果：[Python/mid](all-outputs/python-mid/实验结果.md)、[C/large](all-outputs/c-large/实验结果.md)、[后端配对比较](all-outputs/backend-comparison/实验结果.md)。
+- [作业要求](docs/作业要求.md)：课程原文。
+
+`all-outputs/` 保存动态 JSON、SVG 和结果提示；`docs/assets/` 保存带日期与随机标识的静态标本。采样和重绘不会自动修改文档标本。
+
+实现位于 `src/merkle_commitment/`，正确性测试位于 `correctness/`，密码学及性能实验位于 `experiments/`。接口及参数的完整定义见方案设计和实验类注释。
 
 ## 项目结构
 
@@ -49,10 +81,13 @@ batch proof（批量证明）已实现。
 | src/merkle_commitment/protocol.py | 承诺与开封的数据类型、字段校验及编解码 |
 | src/merkle_commitment/tree.py | 建树、开封和验证 |
 | src/merkle_commitment/sha3.py | SHA3-256 算法 |
-| correctness/ | 五项基干回归，含共享合并与证明消费检查 |
+| src/merkle_commitment/_sha3_c.c | 同一 SHA3-256 的 C11 后端，保持 GIL |
+| correctness/ | 六项基干回归，含 C/Python 差分与共享合并检查 |
 | examples/ | 基础开封演示 |
 | experiments/ | 四个单叶演示、四个树级实验、四个性能实验及绘图（两个脚本） |
-| docs/ | 方案设计、示意图和作业要求 |
-| results/ | 原始分布/计时样本和实验结果 |
+| tools/compare_backends.py | 一次固定规模的后端对比工具 |
+| docs/ | Python 教学参考的方案设计、主展示图和作业要求 |
+| all-outputs/ | 按运行组保存的 JSON、SVG 和实验结果提示 |
+| docs/assets/ | 文档采用的静态图快照，与运行产物分开 |
 
 实现代码构成 `merkle_commitment` 包，位于 `src/`；测试和辅助脚本单独组织。组员信息暂留空，提交前填写。合作修改使用独立分支和 Pull Request，协议或安全假设有变化时同步更新文档与测试。

@@ -4,6 +4,8 @@
 对外接口：sha3_256_digest(message) -> 32 字节；sha3_256(message) -> 十六进制。
 """
 
+import os
+
 # Keccak-f[1600] 的旋转偏移和轮常数
 ROTATION_OFFSETS = [
     [0, 36, 3, 41, 18],
@@ -101,7 +103,7 @@ def _state_to_bytes(state: list[list[int]]) -> bytes:
     return bytes(out)
 
 
-def sha3_256_digest(message: bytes) -> bytes:
+def sha3_256_digest_python(message: bytes) -> bytes:
     """返回字节消息的 32 字节 SHA3-256 摘要。"""
     if not isinstance(message, bytes):
         raise TypeError('message must be bytes')
@@ -130,6 +132,25 @@ def sha3_256_digest(message: bytes) -> bytes:
 
     # SHA3-256 只取前 32 字节，当前状态已包含完整摘要。
     return _state_to_bytes(state)[:DIGEST_BYTES]
+
+
+# 启动时直接绑定函数，热路径没有后端分支或 Python 转发层。
+SHA3_BACKEND = os.environ.get('MTC_SHA3_BACKEND', 'python')
+if SHA3_BACKEND == 'python':
+    sha3_256_digest = sha3_256_digest_python
+elif SHA3_BACKEND == 'c':
+    from ._sha3_c import digest as sha3_256_digest
+else:
+    raise ValueError('MTC_SHA3_BACKEND must be python or c')
+
+
+def backend_info():
+    """记录实际选定的实现；C 构建身份来自 extension 自身，不猜测工具链。"""
+    info = {'backend': 'handwritten-' + SHA3_BACKEND + '-sha3'}
+    if SHA3_BACKEND == 'c':
+        from ._sha3_c import BUILD_INFO
+        info.update(BUILD_INFO)
+    return info
 
 
 def sha3_256(message: bytes) -> str:
