@@ -1,4 +1,4 @@
-"""性能实验 P1–P3：真实计时、独立工作量观测、JSON 和 SVG。
+"""性能实验 P1–P4：真实计时、独立工作量观测、JSON 和 SVG。
 
 PYTHONPATH=src .venv/bin/python -B experiments/performance.py
 --quick 仅检查连通性；--from-json FILE 只重绘。计时期间不并行运行别的实验。
@@ -44,14 +44,15 @@ def environment():
     }
 
 
-def measure(operation, quick):
+def measure(operation, quick, groups=9):
     """预热一次；校准 batch；保存逐组每调用秒数、中位数及四分位数。
 
-    #! full：9 组，校准目标每组 >=0.2s；quick：3 组，目标 >=0.01s。
+    #! full 默认 9 组，P4 大 k 显式指定 3 组，目标每组 >=0.2s；
+    #! quick：3 组，目标 >=0.01s。
     batch 由 pilot 决定且固定；正式组可能因机器波动略短于目标。
     保留函数调用、循环及结果释放成本，不扣减空循环制造负时间。
     """
-    groups, target = (3, 0.01) if quick else (9, 0.2)
+    groups, target = (3, 0.01) if quick else (groups, 0.2)
     operation()
     batch = 1
     while True:
@@ -69,7 +70,7 @@ def measure(operation, quick):
             operation()
         samples.append((time.perf_counter_ns() - started) / 1e9 / batch)
     q1, _, q3 = statistics.quantiles(samples, n=4, method='inclusive')
-    return {'samples_seconds': samples, 'batch': batch,
+    return {'samples_seconds': samples, 'batch': batch, 'groups': groups,
             'median_seconds': statistics.median(samples),
             'q1_seconds': q1, 'q3_seconds': q3,
             'calibration_target_seconds': target}
@@ -300,6 +301,247 @@ class ExperimentP3_MessageLengthCost:
         save(fig, directory, 'performance-P3', preview)
 
 
+
+
+def _count_stored_digest_reads(tree, operation):
+    """在生成调用中计数 level[position]；只取已有摘要，不衡量硬件行为。"""
+    reads = 0
+
+    class ObservedLevel:
+        """保留原摘要对象，整数下标取用一次就记录一次。"""
+        def __init__(self, values):
+            self.values = values
+
+        def __getitem__(self, position):
+            nonlocal reads
+            reads += 1
+            return self.values[position]
+
+    levels = tuple(ObservedLevel(level) for level in tree._levels)
+    with patch.object(tree, '_levels', levels):
+        result = operation()
+    return result, reads
+
+
+def _count_parent_merges(operation):
+    """验证成功后返回真实父合并及 H 调用数；不在计时组中使用包装。"""
+    merges, original = 0, mt._parent_hash
+
+    def observed(left, right):
+        """一次父节点合成记一，仍使用原哈希实现。"""
+        nonlocal merges
+        merges += 1
+        return original(left, right)
+
+    def checked():
+        """计数调用也核对验证结果，避免失败短路冒充较少工作量。"""
+        assert operation()
+
+    with patch.object(mt, '_parent_hash', observed):
+        work = hash_work(checked)
+    return {'parent_merges': merges, **work}
+
+
+class ExperimentP4_BatchproofSharingCost:
+    """P4：同一组位置的独立/批量证明大小、两个操作次数和耗时比较。
+
+    #! full：N=4096，k=2^0..2^12；连续/随机各 300 个结构样本，分散 1 个。
+    #! 默认计时 k=(1,8,64,256)；--large-timing 再加 512/1024/4096。
+    #! quick：N=64，k=(1,8,16,64)，每类三个结构样本，计时到 16。
+    #! 32 B 消息；生成不含建树/编码，验证使用提前准备的对象。
+    完整端点只做一次实际计数；三类位置在 k=N 时共享该唯一端点。
+    C 后端验收后可扩大 N，保持两个操作指标和 Python 重叠点。
+    """
+    def run(self, rng, quick, large_timing=False):
+        """先廉价采集结构分布，再对中位结构成对计时并执行真实计数。"""
+        n = 64 if quick else 4096
+        sizes = [1, 8, 16, 64] if quick else [2**power for power in range(13)]
+        timing_sizes = {1, 8, 16} if quick else {1, 8, 64, 256}
+        if large_timing and not quick:
+            timing_sizes.update((512, 1024, 4096))
+        trials, depth = (3 if quick else 300), (n - 1).bit_length()
+        messages = [i.to_bytes(8, 'big') + b'x' * 24 for i in range(n)]
+        commitment, tree = mt.commit(messages)
+        topology_rows, timing_rows, count_rows = [], [], []
+        for k in sizes:
+            patterns = ('all',) if k == n else ('contiguous', 'dispersed', 'random')
+            for pattern in patterns:
+                rows = []
+                sample_count = 1 if pattern in ('dispersed', 'all') else trials
+                for trial in range(sample_count):
+                    if pattern == 'contiguous':
+                        start = rng.randrange(n - k + 1)
+                        indices = tuple(range(start, start + k))
+                    elif pattern == 'random':
+                        indices = tuple(sorted(rng.sample(range(n), k)))
+                    else:
+                        indices = tuple(j * n // k for j in range(k))
+                    proof, reads = _count_stored_digest_reads(
+                        tree, lambda: tree.prove_many(indices),
+                    )
+                    siblings = len(proof.siblings)
+                    assert reads == siblings
+                    batch_bytes = len(proof.to_bytes())
+                    assert batch_bytes == 13 + 40 * k + 32 * siblings
+                    row = {
+                        'n': n, 'k': k, 'distribution': pattern, 'trial': trial,
+                        'indices': indices, 'single_bytes': k * (43 + 32 * depth),
+                        'batch_bytes': batch_bytes, 'single_siblings': k * depth,
+                        'batch_siblings': siblings,
+                        'bytes_per_position': {'single': 43 + 32 * depth,
+                                               'batch': batch_bytes / k},
+                        'saving_fraction': 1 - batch_bytes / (k * (43 + 32 * depth)),
+                        'generation_work': {'batch_stored_digest_reads': reads,
+                                            'expected_single_stored_digest_reads': k * depth},
+                        'expected_verify_work': {
+                            'single_parent_merges': k * depth, 'batch_parent_merges': k + siblings - 1,
+                            'single_hash_calls': k * (depth + 2), 'batch_hash_calls': 2 * k + siblings,
+                        },
+                    }
+                    rows.append(row)
+                topology_rows.extend(rows)
+                print(f'P4 k={k}, {pattern}: {sample_count} structures', flush=True)
+                if k not in timing_sizes and k != n:
+                    continue
+                median_siblings = sorted(row['batch_siblings'] for row in rows)[len(rows) // 2]
+                selected = next(row for row in rows if row['batch_siblings'] == median_siblings)
+                indices = tuple(selected['indices'])
+                opened = tuple(tree.open(i) for i in indices)
+                batch_messages, proof = tree.open_many(indices)
+
+                def single_open():
+                    """含 k 个消息引用读取与独立证明构造。"""
+                    return tuple(tree.open(i) for i in indices)
+
+                def batch_open():
+                    """同样含 k 个消息引用读取和一次批量证明构造。"""
+                    return tree.open_many(indices)
+
+                def single_verify():
+                    """提前准备的 k 份对象证明，各自与同一公开承诺核对。"""
+                    return all(mt.verify(commitment, i, *item) for i, item in zip(indices, opened))
+
+                def batch_verify():
+                    """提前准备的批量对象，使用正式共享验证器。"""
+                    return mt.verify_many(commitment, indices, batch_messages, proof)
+
+                measured = {}
+                for label, generate, verify in (('single', single_open, single_verify),
+                                                ('batch', batch_open, batch_verify)):
+                    _, reads = _count_stored_digest_reads(tree, generate)
+                    measured[label] = {'stored_digest_reads': reads, **_count_parent_merges(verify)}
+                expected = selected['expected_verify_work']
+                for label in ('single', 'batch'):
+                    assert measured[label]['parent_merges'] == expected[label + '_parent_merges']
+                    assert measured[label]['hash_calls'] == expected[label + '_hash_calls']
+                    assert measured[label]['permutations'] == measured[label]['hash_calls']
+                assert measured['single']['stored_digest_reads'] == k * depth
+                assert measured['batch']['stored_digest_reads'] == len(proof.siblings)
+                assert sum(len(item[1].to_bytes()) for item in opened) == selected['single_bytes']
+                observed = {'n': n, 'k': k, 'distribution': pattern,
+                            'selected_trial': selected['trial'], 'indices': indices,
+                            'measured_work': measured}
+                count_rows.append(observed)
+                if k in timing_sizes:
+                    groups = 9 if k < 64 else 3
+                    timed = dict(observed)
+                    for name, operation in (('single_open', single_open), ('batch_open', batch_open),
+                                            ('single_verify', single_verify), ('batch_verify', batch_verify)):
+                        timed[name] = measure(operation, quick, groups=groups)
+                    timing_rows.append(timed)
+                    print(f'P4 timed k={k}, {pattern}', flush=True)
+        return {
+            'parameters': {'n': n, 'message_bytes': 32, 'sizes': sizes,
+                           'structure_trials': trials, 'timing_sizes': sorted(timing_sizes),
+                           'large_timing': large_timing},
+            'topology_rows': topology_rows, 'timing_rows': timing_rows, 'count_rows': count_rows,
+        }
+
+    def plot(self, data, directory, preview):
+        """结构分布给中位数/IQR，计数实测加点，时间只画实际采样的 k。"""
+        topology = data['topology_rows']
+        sizes = sorted({row['k'] for row in topology})
+        depth = (data['parameters']['n'] - 1).bit_length()
+        colors = dict(zip(('contiguous', 'dispersed', 'random'), ('C0', 'C1', 'C2')))
+
+        def structural(ax, field):
+            """同一分布按 k 汇总；完整集合端点可用于三条分布曲线。"""
+            for pattern, color in colors.items():
+                medians, lowers, uppers = [], [], []
+                for k in sizes:
+                    values = [field(row) for row in topology
+                              if row['k'] == k and row['distribution'] in (pattern, 'all')]
+                    quartiles = statistics.quantiles(values, n=4, method='inclusive') if len(values) > 1 else [values[0]] * 3
+                    medians.append(statistics.median(values))
+                    lowers.append(quartiles[0])
+                    uppers.append(quartiles[2])
+                ax.plot(sizes, medians, '.-', color=color, label=pattern)
+                ax.fill_between(sizes, lowers, uppers, color=color, alpha=0.12)
+            ax.set_xscale('log', base=2)
+            ax.set_xlabel('Opened positions k')
+            ax.grid(alpha=0.2)
+
+        fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+        for ax, field in zip(axes, (lambda row: row['batch_bytes'],
+                                  lambda row: row['batch_bytes'] / row['k'],
+                                  lambda row: row['saving_fraction'] * 100)):
+            structural(ax, field)
+        axes[0].plot(sizes, [k * (43 + 32 * depth) for k in sizes], 'k--', label='Independent proofs')
+        axes[1].axhline(43 + 32 * depth, color='black', linestyle='--', label='Independent proofs')
+        axes[2].axhline(0, color='black', linestyle='--')
+        for ax, label in zip(axes, ('Total proof bytes', 'Proof bytes / position', 'Saving (%)')):
+            ax.set_ylabel(label)
+            ax.legend(fontsize=8)
+        fig.suptitle(f"P4 | Batch proof size; n={data['parameters']['n']}; messages excluded")
+        save(fig, directory, 'performance-P4-size', preview)
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        structural(axes[0], lambda row: row['generation_work']['batch_stored_digest_reads'])
+        structural(axes[1], lambda row: row['expected_verify_work']['batch_parent_merges'])
+        for ax in axes:
+            ax.plot(sizes, [k * depth for k in sizes], 'k--', label='Independent: kh')
+            ax.set_ylim(bottom=0)
+        for row in data['count_rows']:
+            color = colors.get(row['distribution'], 'black')
+            work = row['measured_work']['batch']
+            axes[0].scatter(row['k'], work['stored_digest_reads'], color=color, marker='x', s=45)
+            axes[1].scatter(row['k'], work['parent_merges'], color=color, marker='x', s=45)
+        axes[0].set_ylabel('Stored sibling digest reads (generation)')
+        axes[1].set_ylabel('Parent merges (verification)')
+        for ax in axes:
+            ax.legend(fontsize=8)
+        fig.suptitle('P4 | Two algorithm operations; x = measured counts; merge curves = predicted')
+        save(fig, directory, 'performance-P4-work', preview)
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        for pattern, color in colors.items():
+            rows = [r for r in data['timing_rows'] if r['distribution'] in (pattern, 'all')]
+            for ax, stage, scale in zip(axes, ('open', 'verify'), (1e6, 1000)):
+                # 长虚线加空心方块与实线加实心圆同时区分两种方案；图例也留足线段长度。
+                for variant, line, marker in (
+                    ('single', (0, (6, 3)), 's'),
+                    ('batch', '-', 'o'),
+                ):
+                    name = variant + '_' + stage
+                    x = [r['k'] for r in rows]
+                    ax.plot(x, [r[name]['median_seconds'] * scale for r in rows],
+                            marker=marker, markersize=5, linewidth=1.5,
+                            markerfacecolor='none' if variant == 'single' else color,
+                            linestyle=line, color=color, label=f'{pattern}: {variant}')
+                    ax.fill_between(x, [r[name]['q1_seconds'] * scale for r in rows],
+                                    [r[name]['q3_seconds'] * scale for r in rows],
+                                    color=color, alpha=0.08)
+                ax.set_xscale('log', base=2)
+                ax.set_xlabel('Opened positions k (timed points only)')
+                ax.grid(alpha=0.2)
+        axes[0].set_ylabel('Open time (microseconds)')
+        axes[1].set_ylabel('Verify time (ms)')
+        for ax in axes:
+            ax.legend(fontsize=7, handlelength=4)
+        fig.suptitle('P4 | Paired object APIs: median and IQR; typical topology')
+        save(fig, directory, 'performance-P4-time', preview)
+
+
 def main():
     """顺序运行，完整参数和每组样本写入 JSON；重绘无需重新计时。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -309,9 +551,25 @@ def main():
     parser.add_argument('--figure-dir', type=Path, default=ROOT / 'docs/assets/experiments')
     parser.add_argument('--preview-dir', type=Path)
     parser.add_argument('--from-json', type=Path)
+    parser.add_argument('--batchproof-only', action='store_true')
+    parser.add_argument('--large-timing', action='store_true')
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.figure_dir.mkdir(parents=True, exist_ok=True)
+    if args.batchproof_only:
+        experiment = ExperimentP4_BatchproofSharingCost()
+        if args.from_json:
+            data = json.loads(args.from_json.read_text())
+        else:
+            data = {'environment': environment(), 'seed': args.seed,
+                    'mode': 'quick' if args.quick else 'full', 'complete': False,
+                    **experiment.run(random.Random(args.seed), args.quick, args.large_timing)}
+            data['complete'] = True
+            (args.output_dir / 'batchproof-performance.json').write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + '\n'
+            )
+        experiment.plot(data, args.figure_dir, args.preview_dir)
+        return
     experiments = [ExperimentP1_RawSHA3BlockCost(), ExperimentP2_TreeSizeCost(),
                    ExperimentP3_MessageLengthCost()]
     if args.from_json:
@@ -336,15 +594,8 @@ def main():
 # TODO(C-BACKEND): 自写 C 的完整 digest 通过 NIST/协议对照后，局部替换 mt.H；
 # 保留 Python/C 重叠点，单独记录后端和编译信息，重新校准 batch 后扩大 #! 范围。
 #
-# TODO(B-MULTIPROOF): 实现 prove_many/verify_many/编码后才启用，不设空运行类。
-# N = (1024,4096); k = (1,2,4,8,16,32,64,128,256,N)
-# 索引分布 = 连续 / 均匀分散 / 随机无重复（随机至少 300 次拓扑样本）
-# for indices in samples:
-#     single = [tree.prove(i) for i in indices]
-#     multi = tree.prove_many(indices); assert verify_many(...)
-#     记录 kh、实际 s、k*(43+32h)、13+40k+32s、字节/k、节省比例
-#     在少量代表组计时生成/验证，并独立记录哈希调用与置换次数
-# 不把集合去重的模拟结果声称为已实现 Multiproof 的运行时间。
+# P4 实测 batch proof：连续/分散/随机、总量/均摊、独立操作计数和配对时间。
+# --batchproof-only 保留 P1-P3 数据；--large-timing 才启用大 k 重复计时。
 
 if __name__ == '__main__':
     main()

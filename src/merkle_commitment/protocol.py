@@ -15,13 +15,15 @@ VERSION_BYTES = 1
 U64_BYTES = 8
 DEPTH_BYTES = 2
 # 数量和索引使用 U64，所以合法二叉认证路径最多 64 层。
-MAX_PROOF_DEPTH = 64
-# 三种编码都先写版本，再写一个 8 字节整数（数量或索引）。
+MAX_TREE_DEPTH = 64
+# 编码都先写版本，再写一个 8 字节整数（数量或索引）。
 INTEGER_END = VERSION_BYTES + U64_BYTES
 COMMITMENT_BYTES = INTEGER_END + HASH_BYTES
-PROOF_NONCE_END = INTEGER_END + NONCE_BYTES
-PROOF_HEADER_BYTES = PROOF_NONCE_END + DEPTH_BYTES
+SINGLE_PROOF_NONCE_END = INTEGER_END + NONCE_BYTES
+SINGLE_PROOF_HEADER_BYTES = SINGLE_PROOF_NONCE_END + DEPTH_BYTES
 FULL_HEADER_BYTES = INTEGER_END
+BATCH_PROOF_SIBLING_COUNT_BYTES = 4
+BATCH_PROOF_FIXED_BYTES = INTEGER_END + BATCH_PROOF_SIBLING_COUNT_BYTES
 
 
 def validate_u64(value: int) -> None:
@@ -43,6 +45,16 @@ def encode_u64(value: int) -> bytes:
     return value.to_bytes(U64_BYTES, 'big')
 
 
+def validate_indices(indices: Tuple[int, ...]) -> None:
+    """批量位置必须是非空、严格递增的 U64 元组；不隐式排序或去重。"""
+    if type(indices) is not tuple or not indices:
+        raise ValueError('indices must be a nonempty tuple')
+    for index in indices:
+        validate_u64(index)
+    if any(left >= right for left, right in zip(indices, indices[1:])):
+        raise ValueError('indices must be strictly increasing')
+
+
 def message_bytes(value: Message) -> bytes:
     """字符串先转成 UTF-8 字节；字节消息直接使用。"""
     if isinstance(value, str):
@@ -62,15 +74,15 @@ def _validate_fixed_bytes(value: bytes, size: int, field: str) -> None:
 class Commitment:
     """公开的叶子数量和承诺摘要，供验证者保存和比较。"""
     leaf_count: int
-    root: bytes
+    digest: bytes
 
     def __post_init__(self) -> None:
         validate_leaf_count(self.leaf_count)
-        _validate_fixed_bytes(self.root, HASH_BYTES, 'digest')
+        _validate_fixed_bytes(self.digest, HASH_BYTES, 'digest')
 
     def to_bytes(self) -> bytes:
         """依次写入版本、叶子数量和承诺摘要。"""
-        return bytes([VERSION]) + encode_u64(self.leaf_count) + self.root
+        return bytes([VERSION]) + encode_u64(self.leaf_count) + self.digest
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Commitment:
@@ -86,12 +98,12 @@ class Commitment:
             data[VERSION_BYTES:INTEGER_END],
             'big',
         )
-        root = data[INTEGER_END:]
-        return cls(leaf_count=leaf_count, root=root)
+        digest = data[INTEGER_END:]
+        return cls(leaf_count=leaf_count, digest=digest)
 
 
 @dataclass(frozen=True)
-class MerkleProof:
+class SingleProof:
     """证明一个位置的消息：带上随机值和从叶子到根的兄弟摘要。"""
     index: int
     nonce: bytes
@@ -101,7 +113,7 @@ class MerkleProof:
         validate_u64(self.index)
         _validate_fixed_bytes(self.nonce, NONCE_BYTES, 'opening randomness')
 
-        if (type(self.siblings) is not tuple or len(self.siblings) > MAX_PROOF_DEPTH):
+        if (type(self.siblings) is not tuple or len(self.siblings) > MAX_TREE_DEPTH):
             raise ValueError('siblings must be a tuple of at most 64 digests')
         
         for sibling in self.siblings:
@@ -118,29 +130,29 @@ class MerkleProof:
         )
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> MerkleProof:
+    def from_bytes(cls, data: bytes) -> SingleProof:
         """按路径长度读取兄弟摘要，多出或缺少字节都报 ValueError。"""
         if (
             not isinstance(data, bytes)
-            or len(data) < PROOF_HEADER_BYTES
+            or len(data) < SINGLE_PROOF_HEADER_BYTES
             or data[0] != VERSION
         ):
             raise ValueError('invalid proof encoding')
         
-        depth = int.from_bytes(data[PROOF_NONCE_END:PROOF_HEADER_BYTES], 'big')
+        depth = int.from_bytes(data[SINGLE_PROOF_NONCE_END:SINGLE_PROOF_HEADER_BYTES], 'big')
 
-        expected_length = PROOF_HEADER_BYTES + HASH_BYTES * depth
-        if depth > MAX_PROOF_DEPTH or len(data) != expected_length:
+        expected_length = SINGLE_PROOF_HEADER_BYTES + HASH_BYTES * depth
+        if depth > MAX_TREE_DEPTH or len(data) != expected_length:
             raise ValueError('invalid proof length')
         
         index = int.from_bytes(data[VERSION_BYTES:INTEGER_END], 'big')
 
-        nonce = data[INTEGER_END:PROOF_NONCE_END]
+        nonce = data[INTEGER_END:SINGLE_PROOF_NONCE_END]
 
         siblings = tuple(
             data[offset:offset + HASH_BYTES]
             for offset in range(
-                PROOF_HEADER_BYTES,
+                SINGLE_PROOF_HEADER_BYTES,
                 len(data),
                 HASH_BYTES,
             )
@@ -149,18 +161,67 @@ class MerkleProof:
         return cls(index=index, nonce=nonce, siblings=siblings)
 
 
-# TODO(B-MULTIPROOF): 主逻辑完成后再启用下列协议草案。
-# MULTIPROOF_SIBLING_COUNT_BYTES = 4
-# @dataclass(frozen=True)
-# class MultiProof:
-#     indices: Tuple[int, ...]      # 非空、严格递增、无重复
-#     nonces: Tuple[bytes, ...]     # 与 indices 一一对应
-#     siblings: Tuple[bytes, ...]   # 从下到上，同层位置递增
-#
-# v1 encoding:
-# version(1) || k(8) || indices(8*k) || nonces(32*k)
-# || sibling_count(4) || siblings(32*s)
-# total = 13 + 40*k + 32*s bytes
+@dataclass(frozen=True)
+class BatchProof:
+    """多个位置的共享证明：从下到上、同层按位置递增携带缺少的兄弟。
+
+    消息另行传入，与 indices、nonces 一一对应。
+    v1 编码为 version/k/indices/nonces/s/siblings，共 13+40k+32s B。
+    """
+    indices: Tuple[int, ...]
+    nonces: Tuple[bytes, ...]
+    siblings: Tuple[bytes, ...]
+
+    def __post_init__(self) -> None:
+        validate_indices(self.indices)
+        if type(self.nonces) is not tuple or len(self.nonces) != len(self.indices):
+            raise ValueError('index/nonce counts differ')
+        for nonce in self.nonces:
+            _validate_fixed_bytes(nonce, NONCE_BYTES, 'opening randomness')
+        if type(self.siblings) is not tuple or len(self.siblings) >= 1 << 32:
+            raise ValueError('siblings must fit the 4-byte count')
+        for sibling in self.siblings:
+            _validate_fixed_bytes(sibling, HASH_BYTES, 'digest')
+
+    def to_bytes(self) -> bytes:
+        """先写全部索引和 nonce，再写兄弟数量及按规范排列的摘要。"""
+        return (
+            bytes([VERSION])
+            + encode_u64(len(self.indices))
+            + b''.join(encode_u64(index) for index in self.indices)
+            + b''.join(self.nonces)
+            + len(self.siblings).to_bytes(BATCH_PROOF_SIBLING_COUNT_BYTES, 'big')
+            + b''.join(self.siblings)
+        )
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> BatchProof:
+        """按 k/s 直接核对总长，拒绝截断、额外字节和非法索引次序。"""
+        if (not isinstance(data, bytes) or len(data) < BATCH_PROOF_FIXED_BYTES
+                or data[0] != VERSION):
+            raise ValueError('invalid batch proof encoding')
+        count = int.from_bytes(data[VERSION_BYTES:INTEGER_END], 'big')
+        indices_end = INTEGER_END + U64_BYTES * count
+        nonces_end = indices_end + NONCE_BYTES * count
+        count_end = nonces_end + BATCH_PROOF_SIBLING_COUNT_BYTES
+        if count_end > len(data):
+            raise ValueError('truncated batch proof fields')
+        sibling_count = int.from_bytes(data[nonces_end:count_end], 'big')
+        if len(data) != count_end + HASH_BYTES * sibling_count:
+            raise ValueError('invalid batch proof length')
+        indices = tuple(
+            int.from_bytes(data[offset:offset + U64_BYTES], 'big')
+            for offset in range(INTEGER_END, indices_end, U64_BYTES)
+        )
+        nonces = tuple(
+            data[offset:offset + NONCE_BYTES]
+            for offset in range(indices_end, nonces_end, NONCE_BYTES)
+        )
+        siblings = tuple(
+            data[offset:offset + HASH_BYTES]
+            for offset in range(count_end, len(data), HASH_BYTES)
+        )
+        return cls(indices=indices, nonces=nonces, siblings=siblings)
 
 
 @dataclass(frozen=True)

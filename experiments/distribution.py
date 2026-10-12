@@ -311,8 +311,8 @@ class ExperimentAPrime_TreeTamperPropagation:
                         new = mt._parent_hash(sibling, new) if position & 1 else mt._parent_hash(new, sibling)
                         distances.append(distance(difference(old, new)))
                         position //= 2
-                    old, new = mt._root_hash(n, old), mt._root_hash(n, new)
-                    assert old == commitment.root
+                    old, new = mt._commitment_hash(n, old), mt._commitment_hash(n, new)
+                    assert old == commitment.digest
                     distances.append(distance(difference(old, new)))
                     # 每类首例重建全树，比较所有节点，核对每层仅一个节点改变。
                     if trial == 0:
@@ -322,7 +322,7 @@ class ExperimentAPrime_TreeTamperPropagation:
                         counts = [sum(a != b for a, b in zip(left, right))
                                   for left, right in zip(tree._levels, rebuilt)]
                         assert counts == [1] * len(rebuilt)
-                        assert mt._root_hash(n, rebuilt[-1][0]) == new
+                        assert mt._commitment_hash(n, rebuilt[-1][0]) == new
                     else:
                         counts = None
                     rows.append({'field': field, 'index': index, 'input_bit': bit,
@@ -361,14 +361,14 @@ def tree_with_nonces(messages, nonces):
         return mt.commit(messages)
 
 
-def root_from_leaf(n, index, leaf, siblings):
+def commitment_from_leaf(n, index, leaf, siblings):
     """复用不变的兄弟摘要，重算父层和最终承诺封装；共 h+1 次哈希。"""
     current, position = leaf, index
     for sibling in siblings:
         current = (mt._parent_hash(sibling, current) if position & 1
                    else mt._parent_hash(current, sibling))
         position //= 2
-    return mt._root_hash(n, current)
+    return mt._commitment_hash(n, current)
 
 
 def counted_search(operation):
@@ -396,7 +396,7 @@ def verify_projected_opening(n, bits, projection, opening):
     if len(opening.messages) != n:
         return False
     levels = mt._levels(opening.messages, opening.nonces)
-    root = mt._root_hash(n, levels[-1][0])
+    root = mt._commitment_hash(n, levels[-1][0])
     return project_digest(root, bits) == projection
 
 
@@ -410,7 +410,7 @@ class ExperimentBPrime_TreePublicViewBias:
     C 后端可将每类增至 10,000，并增加不同的目标位置。
     """
     def run(self, rng, quick):
-        """实际建两棵树并打开邻居，核对证明首个兄弟正是目标叶。"""
+        """实际建两棵树并开封邻居，核对证明首个兄弟正是目标叶。"""
         count, groups = (8 if quick else 1000), []
         for n in (3, 8, 9):
             target = 0 if n == 3 else 2
@@ -427,7 +427,7 @@ class ExperimentBPrime_TreePublicViewBias:
                     if trial == 0:
                         assert mt.verify(commitment, neighbor, message, proof)
                     labels[label].append({
-                        'root': commitment.root.hex(),
+                        'root': commitment.digest.hex(),
                         'neighbor_message_hex': message.hex(),
                         'neighbor_proof_hex': proof.to_bytes().hex(),
                     })
@@ -446,7 +446,7 @@ class ExperimentBPrime_TreePublicViewBias:
                 for label, rows in labels.items():
                     samples[label] = [
                         row['root'] if field == 'root' else
-                        mt.MerkleProof.from_bytes(bytes.fromhex(row['neighbor_proof_hex']))
+                        mt.SingleProof.from_bytes(bytes.fromhex(row['neighbor_proof_hex']))
                         .siblings[0].hex() for row in rows
                     ]
                 delta = [a - b for a, b in zip(bit_rates(samples['0']), bit_rates(samples['1']))]
@@ -497,7 +497,7 @@ class ExperimentCPrime_TreeTargetRecovery:
                         """逐候选调用正式 verify，以公开 C 判断是否恢复。"""
                         for rank in range(10 * 2**bits):
                             value, nonce = divmod(rank, 2**bits)
-                            candidate = mt.MerkleProof(
+                            candidate = mt.SingleProof(
                                 index=index, nonce=nonce.to_bytes(32, 'big'), siblings=siblings,
                             )
                             if mt.verify(commitment, index, str(value).encode(), candidate):
@@ -588,7 +588,7 @@ class ExperimentDPrime_TreeConflictingOpenings:
                         while True:
                             value = f'我欠你{amount}块'.encode()
                             leaf = mt._leaf_hash(n, index, value, proof.nonce)
-                            root = root_from_leaf(n, index, leaf, proof.siblings)
+                            root = commitment_from_leaf(n, index, leaf, proof.siblings)
                             projected = project_digest(root, bits)
                             if projected in seen:
                                 first_amount, first_root = seen[projected]
@@ -607,7 +607,7 @@ class ExperimentDPrime_TreeConflictingOpenings:
                         openings.append(mt.FullOpening(messages=tuple(values), nonces=tuple(nonces)))
                     accepted = [verify_projected_opening(n, bits, projection, o) for o in openings]
                     assert all(accepted)
-                    original = mt.Commitment(leaf_count=n, root=first_root)
+                    original = mt.Commitment(leaf_count=n, digest=first_root)
                     assert mt.verify_all(original, openings[0])
                     assert not mt.verify_all(original, openings[1])
                     rows.append({
@@ -696,7 +696,7 @@ def main():
 
 # TODO(C-BACKEND): 140 个 NIST 向量和协议输入逐字节对照通过后，
 # 才在实验局部替换 mt.H；记录真实 backend，扩大各类 #! 参数，不换正式随机源。
-# TODO(B-MULTIPROOF): 批量开封 / Multiproof 的分布实验等其主逻辑完成后添加。
+# Batch proof 接口已实现；新的批量分布实验按实际研究需求另加。
 
 if __name__ == '__main__':
     main()

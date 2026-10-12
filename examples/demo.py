@@ -1,6 +1,6 @@
-"""演示有效开封、篡改拒绝及完整开封。"""
+"""演示单项/批量/完整开封及篡改拒绝。"""
 
-from merkle_commitment import commit, verify, verify_all
+from merkle_commitment import commit, verify, verify_all, verify_many
 
 
 def main():
@@ -14,6 +14,12 @@ def main():
     )
     print('tampered:', verify(commitment, 2, b'changed', proof))
     print('full opening:', verify_all(commitment, tree.open_all()))
+    indices = (0, 2)
+    messages, batch = tree.open_many(indices)
+    print('batch proof bytes:', len(batch.to_bytes()))
+    print('batch opening:', verify_many(
+        commitment.to_bytes(), indices, messages, batch.to_bytes(),
+    ))
 
 
 if __name__ == '__main__':
