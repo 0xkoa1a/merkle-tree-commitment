@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""作业验证入口：正确性、安全回归、猜测演示和性能评估。"""
+"""性能采样与报告生成；测试和攻击演示使用各自入口。"""
 import argparse
 from datetime import datetime
 import json
@@ -10,12 +10,10 @@ import subprocess
 import sys
 import time
 import tracemalloc
-import unittest
+from unittest.mock import patch
 
-import merkle_tree as m
-from privacy_experiment import run as privacy_run
-from sha3 import sha3_256_digest
-import test_scheme
+from merkle_commitment import tree as m
+from merkle_commitment.sha3 import sha3_256_digest
 
 
 def environment():
@@ -47,6 +45,32 @@ def measured(fn, repetitions, batch=1):
             'min_seconds': min(samples), 'max_seconds': max(samples), 'batch': batch}
 
 
+def count_hash_calls(values):
+    """只在独立的一次构建中计数，离开作用域即恢复原函数。"""
+    original, calls = m.H, 0
+
+    def counted(data):
+        nonlocal calls
+        calls += 1
+        return original(data)
+
+    with patch.object(m, 'H', counted):
+        m.commit(values)
+    return calls
+
+
+def peak_allocation(values):
+    """单独测 Python 分配峰值，异常时也关闭追踪。"""
+    tracemalloc.start()
+    try:
+        state = m.commit(values)
+        peak = tracemalloc.get_traced_memory()[1]
+        del state
+        return peak
+    finally:
+        tracemalloc.stop()
+
+
 def benchmark(repetitions):
     output = {'environment': environment(), 'repetitions': repetitions,
               'method': '一次预热；perf_counter_ns；计时不含tracemalloc；单独测建树峰值Python分配',
@@ -65,30 +89,19 @@ def benchmark(repetitions):
         value, proof = state.open(index)
         wire, public_wire = proof.to_bytes(), public.to_bytes()
         opening = state.open_all()
-        assert m.verify(public_wire, index, value, wire)
-        assert m.verify_all(public, opening)
+        if not m.verify(public_wire, index, value, wire) or not m.verify_all(public, opening):
+            raise RuntimeError('benchmark fixture failed verification')
         generate = measured(lambda: state.prove(index), repetitions, batch=200)
         verify = measured(lambda: m.verify(public_wire, index, value, wire), repetitions, batch=10)
         full_verify = measured(lambda: m.verify_all(public, opening), repetitions)
         serialize = measured(proof.to_bytes, repetitions, batch=200)
-        # 临时计数器确认实现调用次数，计数不进入任何延迟样本。
-        original, counter = m.H, [0]
-        def counted(data):
-            counter[0] += 1
-            return original(data)
-        m.H = counted
-        try:
-            m.commit(values)
-        finally:
-            m.H = original
-        assert counter[0] == 2 * capacity
-        tracemalloc.start()
-        memory_state = m.commit(values)
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        del memory_state
+        # 计数和分配追踪均不进入延迟样本。
+        hash_calls = count_hash_calls(values)
+        if hash_calls != 2 * capacity:
+            raise RuntimeError('unexpected tree hash count')
+        peak = peak_allocation(values)
         output['tree'].append({'leaf_count': n, 'message_bytes': 32, 'depth': depth,
-            'padded_leaf_count': capacity, 'hash_calls_observed': counter[0],
+            'padded_leaf_count': capacity, 'hash_calls_observed': hash_calls,
             'commitment_bytes': len(public_wire), 'proof_bytes': len(wire),
             'full_opening_bytes': len(opening.to_bytes()), 'python_peak_bytes': peak,
             'build': build, 'prove': generate, 'verify_wire': verify,
@@ -103,15 +116,17 @@ def benchmark(repetitions):
     return output
 
 
-def render_report(data, test_count):
+def render_report(data):
     env = data['environment']
-    lines = ['# 性能与验证结果', '', '由 `python3 test2.py --repetitions %d` 自动生成。' % data['repetitions'], '',
+    command = data.get('source_command',
+                       'PYTHONPATH=src python3 -B -m benchmarks.benchmark --repetitions %d' % data['repetitions'])
+    lines = ['# 性能与验证结果', '', '采集命令：`%s`。' % command, '',
              '## 环境与测量边界', '',
              '- 时间：' + env['timestamp'], '- Python：' + env['python'].replace('\n', ' '),
              '- 设备：%s / %s / %s / %s' % (env['system'], env['os_release'], env['machine'], env['processor']),
              '- 逻辑 CPU：%s；内存字节：%s。' % (env['logical_cpus'], env['memory_bytes']),
              '- 硬件记录：' + env.get('hardware_source', '基准启动时只读查询；不支持或受限的字段标为 unavailable。'),
-             '- %d 项 unittest 通过；低熵攻击演示结果另见原始 JSON。' % test_count,
+             '- 每个规模的测量夹具检查有效单项开封、完整开封和哈希调用次数；这些检查不进入计时。',
              '- 每项一次预热、%d 组样本；表格报告均值及样本标准差。原始样本保存在 results.json。' % data['repetitions'],
              '- 建树计时包含消息规范化、操作系统随机值生成、哈希及树分配。',
              '- 单项验证计时包含承诺/证明解析及根比较，消息由调用方提供。',
@@ -120,6 +135,8 @@ def render_report(data, test_count):
              '## 建树与单项开封', '',
              '| n | 补齐叶数 | 实测哈希次数 | 建树 ms | 吞吐 leaves/s | 生成 μs | 验证 ms | 证明 B | Python 峰值 KiB |',
              '| --- | --- | --- | --- | --- | --- | --- | --- | --- |']
+    if 'source_commit' in data:
+        lines[4:4] = ['> 这是重构前提交 `%s` 的实测基线。原始样本保留；当前代码重跑请使用 README 中的新入口。' % data['source_commit'], '']
     for row in data['tree']:
         lines.append('| %d | %d | %d | %.3f ± %.3f | %.0f | %.3f ± %.3f | %.3f ± %.3f | %d | %.1f |' %
             (row['leaf_count'], row['padded_leaf_count'], row['hash_calls_observed'],
@@ -156,25 +173,15 @@ def render_report(data, test_count):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--tests-only', action='store_true')
     parser.add_argument('--repetitions', type=int, default=5)
-    parser.add_argument('--output-dir', type=Path, default=Path(__file__).with_name('results'))
+    parser.add_argument('--output-dir', type=Path, default=Path(__file__).resolve().parents[1] / 'results')
     args = parser.parse_args()
     if args.repetitions < 2:
         parser.error('--repetitions must be >= 2')
-    suite = unittest.defaultTestLoader.loadTestsFromModule(test_scheme)
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
-    if not result.wasSuccessful():
-        raise SystemExit(1)
-    privacy = privacy_run()
-    print(json.dumps(privacy, ensure_ascii=False, indent=2), flush=True)
-    if args.tests_only:
-        return
     data = benchmark(args.repetitions)
-    data['verification'] = {'unittest_count': result.testsRun, 'passed': True, 'privacy': privacy}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / 'results.json').write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-    (args.output_dir / '性能与验证结果.md').write_text(render_report(data, result.testsRun))
+    (args.output_dir / '性能与验证结果.md').write_text(render_report(data))
     print('Saved:', args.output_dir)
 
 

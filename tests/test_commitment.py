@@ -1,38 +1,9 @@
-"""固定答案、协议边界和对抗输入测试；不调用现成哈希/Merkle 实现。"""
-import json
+"""协议正确性、独立规格和对抗输入回归。"""
 from dataclasses import replace
-from pathlib import Path
 import unittest
 
-import merkle_tree as m
-from sha3 import sha3_256, sha3_256_digest
-
-
-class HashTests(unittest.TestCase):
-    def test_nist_known_answers(self):
-        data = json.loads(Path(__file__).with_name('test_vectors.json').read_text())
-        self.assertEqual(len(data['vectors']), 140)
-        self.assertEqual({item['length_bytes'] for item in data['vectors']},
-                         set(range(137)) | {273, 410, 4109})
-        self.assertEqual(len({item['id'] for item in data['vectors']}), 140)
-        self.assertEqual(data['source']['organization'], 'NIST CAVP')
-        for item in data['vectors']:
-            with self.subTest(vector=item['id']):
-                message = bytes.fromhex(item['message_hex'])
-                self.assertEqual(len(message), item['length_bytes'])
-                self.assertEqual(len(message) * 8, item['length_bits'])
-                self.assertEqual(sha3_256(message), item['digest_hex'])
-
-    def test_abc_known_answer(self):
-        self.assertEqual(sha3_256(b'abc'),
-                         '3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532')
-
-    def test_unicode_encoding_and_digest_size(self):
-        self.assertEqual(sha3_256('你好'), sha3_256('你好'.encode('utf-8')))
-        self.assertEqual(len(sha3_256_digest(b'abc')), 32)
-        for value in (None, 1, [], bytearray(b'x')):
-            with self.assertRaises(TypeError):
-                sha3_256(value)
+from merkle_commitment import tree as m
+from merkle_commitment.sha3 import sha3_256_digest
 
 
 class CommitmentTests(unittest.TestCase):
@@ -145,12 +116,6 @@ class CommitmentTests(unittest.TestCase):
                     replace(full, nonces=(b'\x00' * 32,) + full.nonces[1:])):
             self.assertFalse(m.verify_all(self.public, bad))
 
-    def test_full_opening_recomputes_fixed_randomness(self):
-        full = self.state.open_all()
-        self.assertTrue(m.verify_all(self.public, full))
-        self.assertEqual(m._root_hash(len(full.messages),
-                                     m._levels(full.messages, full.nonces)[-1][0]), self.public.root)
-
     def test_strict_commitment_parser(self):
         data = self.public.to_bytes()
         for bad in (b'', data[:-1], data + b'x', b'\x02' + data[1:],
@@ -199,5 +164,3 @@ class CommitmentTests(unittest.TestCase):
                             sha3_256_digest(b'\x02' + n.to_bytes(8, 'big') + b'\x00' * 8))
 
 
-if __name__ == '__main__':
-    unittest.main(verbosity=2)

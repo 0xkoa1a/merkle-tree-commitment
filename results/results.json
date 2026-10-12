@@ -867,5 +867,7 @@
         "interpretation": "有限猜测实验；256-bit 随机值的隐藏性由文档中的随机预言机论证支持。"
       }
     }
-  }
+  },
+  "source_commit": "2ff13adc81c2ad38dbbcb8ce96029752312a57c2",
+  "source_command": "python3 test2.py --repetitions 5"
 }
