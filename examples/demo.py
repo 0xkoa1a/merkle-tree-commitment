@@ -4,13 +4,16 @@ from merkle_commitment import commit, verify, verify_all
 
 
 def main():
-    public, state = commit(['6', '9', '0'])
-    message, proof = state.open(2)
-    print('commitment:', public.to_bytes().hex())
+    commitment, tree = commit(['6', '9', '0'])
+    message, proof = tree.open(2)
+    print('commitment:', commitment.to_bytes().hex())
     print('proof bytes:', len(proof.to_bytes()))
-    print('valid:', verify(public.to_bytes(), 2, message, proof.to_bytes()))
-    print('tampered:', verify(public, 2, b'changed', proof))
-    print('full opening:', verify_all(public, state.open_all()))
+    print(
+        'valid:',
+        verify(commitment.to_bytes(), 2, message, proof.to_bytes()),
+    )
+    print('tampered:', verify(commitment, 2, b'changed', proof))
+    print('full opening:', verify_all(commitment, tree.open_all()))
 
 
 if __name__ == '__main__':
