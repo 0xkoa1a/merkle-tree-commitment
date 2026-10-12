@@ -5,14 +5,16 @@ from typing import Iterable, Tuple, Union
 
 from .sha3 import sha3_256_digest as H
 from .protocol import (
+    BatchProof,
     Commitment,
     FullOpening,
-    MerkleProof,
+    SingleProof,
     Message,
     NONCE_BYTES,
     encode_u64,
     message_bytes,
     validate_leaf_count,
+    validate_indices,
     validate_u64,
 )
 
@@ -69,9 +71,17 @@ def _levels(
     return tuple(levels)
 
 
-def _root_hash(n: int, tree_root: bytes) -> bytes:
+def _commitment_hash(n: int, tree_root: bytes) -> bytes:
     """把真实叶子数量和树根一起哈希，得到最终承诺摘要。"""
     return H(COMMITMENT_TAG + encode_u64(n) + tree_root)
+
+
+def _next_positions(positions):
+    """返回本层缺少的兄弟和下一层父位置，两者均按位置递增排列。"""
+    known = set(positions)
+    needed = sorted({position ^ 1 for position in positions} - known)
+    parents = sorted({position // 2 for position in positions})
+    return needed, parents
 
 
 class MerkleTree:
@@ -93,10 +103,10 @@ class MerkleTree:
 
         self.commitment = Commitment(
             leaf_count=leaf_count,
-            root=_root_hash(leaf_count, tree_root),
+            digest=_commitment_hash(leaf_count, tree_root),
         )
 
-    def prove(self, index: int) -> MerkleProof:
+    def prove(self, index: int) -> SingleProof:
         """按从叶子到根的顺序，收集这个位置的兄弟摘要。"""
         validate_u64(index)
         if index >= len(self._messages):
@@ -110,22 +120,30 @@ class MerkleTree:
             siblings.append(level[position ^ 1])
             position //= 2
 
-        return MerkleProof(
+        return SingleProof(
             index=index,
             nonce=self._nonces[index],
             siblings=tuple(siblings),
         )
 
-    # TODO(B-MULTIPROOF): 主逻辑完成后实现 prove_many。
-    # active_positions = list(indices)
-    # for level in self._levels[:-1]:
-    #     known = set(active_positions)
-    #     needed = sorted({position ^ 1 for position in known} - known)
-    #     append level[position] for every position in needed
-    #     active_positions = sorted({position // 2 for position in known})
-    # return MultiProof(indices=..., nonces=..., siblings=...)
+    def prove_many(self, indices: Iterable[int]) -> BatchProof:
+        """逐层收集缺少的兄弟；共同父节点只进入下一层一次，不执行哈希。"""
+        indices = tuple(indices)
+        validate_indices(indices)
+        if indices[-1] >= len(self._messages):
+            raise ValueError('index outside committed vector')
+        active_positions, siblings = indices, []
+        for level in self._levels[:-1]:
+            needed, parents = _next_positions(active_positions)
+            siblings.extend(level[position] for position in needed)
+            active_positions = parents
+        return BatchProof(
+            indices=indices,
+            nonces=tuple(self._nonces[index] for index in indices),
+            siblings=tuple(siblings),
+        )
 
-    def open(self, index: int) -> Tuple[bytes, MerkleProof]:
+    def open(self, index: int) -> Tuple[bytes, SingleProof]:
         """返回消息字节和证明；索引超出范围时抛出 ValueError。"""
         proof = self.prove(index)
         return self._messages[index], proof
@@ -136,6 +154,12 @@ class MerkleTree:
             messages=self._messages,
             nonces=self._nonces,
         )
+
+    def open_many(self, indices: Iterable[int]) -> Tuple[Tuple[bytes, ...], BatchProof]:
+        """按严格递增位置返回消息元组与共享证明；输入迭代器只消费一次。"""
+        proof = self.prove_many(indices)
+        messages = tuple(self._messages[index] for index in proof.indices)
+        return messages, proof
 
 
 def commit(messages: Iterable[Message]) -> Tuple[Commitment, MerkleTree]:
@@ -148,7 +172,7 @@ def verify(
     commitment: Union[Commitment, bytes],
     index: int,
     message: Message,
-    proof: Union[MerkleProof, bytes],
+    proof: Union[SingleProof, bytes],
 ) -> bool:
     """用之前保存的承诺，检查指定位置的消息。
 
@@ -159,10 +183,10 @@ def verify(
         if isinstance(commitment, bytes):
             commitment = Commitment.from_bytes(commitment)
         if isinstance(proof, bytes):
-            proof = MerkleProof.from_bytes(proof)
+            proof = SingleProof.from_bytes(proof)
         if not isinstance(commitment, Commitment):
             return False
-        if not isinstance(proof, MerkleProof):
+        if not isinstance(proof, SingleProof):
             return False
         validate_u64(index)
 
@@ -186,19 +210,61 @@ def verify(
             else:
                 current = _parent_hash(current, sibling)
             position //= 2
-        return _root_hash(commitment.leaf_count, current) == commitment.root
+        return _commitment_hash(commitment.leaf_count, current) == commitment.digest
     
     except (TypeError, ValueError):
         return False
 
 
-# TODO(B-MULTIPROOF): 主逻辑完成后实现 verify_many。
-# 1. 解析 commitment/proof，检查 indices、messages、nonces 数量和范围。
-# 2. 由公开消息和 nonce 建立 current_nodes。
-# 3. 每层按位置递增遍历，缺兄弟时顺序消费 proof.siblings。
-# 4. 每对节点只计算一次父节点，然后进入上一层。
-# 5. 兄弟不足或最终仍有剩余都拒绝。
-# 6. root_hash(n, current_nodes[0]) 必须等于 commitment.root。
+def verify_many(
+    commitment: Union[Commitment, bytes],
+    indices: Iterable[int],
+    messages: Iterable[Message],
+    proof: Union[BatchProof, bytes],
+) -> bool:
+    """检查期望位置与批量消息，逐层共享合并，恰好消费全部兄弟摘要。
+
+    对象和字节入口一致；每层只保存当前节点，不重复验证独立路径。
+    无法匹配位置、消息、证明结构或最终承诺时返回 False。
+    """
+    try:
+        if isinstance(commitment, bytes):
+            commitment = Commitment.from_bytes(commitment)
+        if isinstance(proof, bytes):
+            proof = BatchProof.from_bytes(proof)
+        if not isinstance(commitment, Commitment) or not isinstance(proof, BatchProof):
+            return False
+        indices = tuple(indices)
+        validate_indices(indices)
+        if indices != proof.indices or indices[-1] >= commitment.leaf_count:
+            return False
+        if isinstance(messages, (str, bytes)):
+            return False
+        messages = tuple(message_bytes(value) for value in messages)
+        if len(messages) != len(indices):
+            return False
+        n = commitment.leaf_count
+        current_nodes = {
+            index: _leaf_hash(n, index, message, nonce)
+            for index, message, nonce in zip(indices, messages, proof.nonces)
+        }
+        cursor = 0
+        for _ in range(tree_depth(n)):
+            needed, parents = _next_positions(current_nodes)
+            for position in needed:
+                if cursor == len(proof.siblings):
+                    return False
+                current_nodes[position] = proof.siblings[cursor]
+                cursor += 1
+            current_nodes = {
+                parent: _parent_hash(current_nodes[2 * parent], current_nodes[2 * parent + 1])
+                for parent in parents
+            }
+        if cursor != len(proof.siblings):
+            return False
+        return _commitment_hash(n, current_nodes[0]) == commitment.digest
+    except (TypeError, ValueError):
+        return False
 
 
 def verify_all(
@@ -222,7 +288,7 @@ def verify_all(
             return False
         
         tree_root = _levels(opening.messages, opening.nonces)[-1][0]
-        return _root_hash(commitment.leaf_count, tree_root) == commitment.root
+        return _commitment_hash(commitment.leaf_count, tree_root) == commitment.digest
     
     except (TypeError, ValueError):
         return False

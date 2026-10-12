@@ -57,7 +57,7 @@ class CommitmentTests(unittest.TestCase):
                 commitment, tree = mt.commit(messages)
                 opening = tree.open_all()
                 self.assertEqual(
-                    commitment.root,
+                    commitment.digest,
                     _reference_root(opening.messages, opening.nonces),
                 )
                 for index in sorted({0, n // 2, n - 1}):
@@ -82,7 +82,7 @@ class CommitmentTests(unittest.TestCase):
             (commitment, message, replace(
                 proof, siblings=(_flip(proof.siblings[0]),) + proof.siblings[1:],
             )),
-            (replace(commitment, root=_flip(commitment.root)), message, proof),
+            (replace(commitment, digest=_flip(commitment.digest)), message, proof),
         )
         for case, (candidate, value, evidence) in enumerate(variants):
             with self.subTest(case=case):
@@ -104,6 +104,43 @@ class CommitmentTests(unittest.TestCase):
                 self.assertEqual(type(value).from_bytes(value.to_bytes()), value)
         self.assertTrue(mt.verify(commitment.to_bytes(), 2, message, proof.to_bytes()))
         self.assertTrue(mt.verify_all(commitment.to_bytes(), opening.to_bytes()))
+
+    def test_batch_openings_and_proof_consumption(self):
+        """共享路径覆盖单叶、占位、相邻/跨子树及全开，并严格消费证明。
+
+        根先与独立递归规格比较；批量消息再与单项开封对照。
+        少量拒绝案例检查新入口的消息绑定、期望位置和边界摘要数量。
+        """
+        for n in (1, 3, 8, 9):
+            commitment, tree = mt.commit([str(i) for i in range(n)])
+            full = tree.open_all()
+            self.assertEqual(commitment.digest, _reference_root(full.messages, full.nonces))
+            subsets = {(0,), tuple(range(min(2, n))), tuple(sorted({0, n // 2, n - 1})),
+                       tuple(range(n))}
+            for indices in sorted(subsets):
+                with self.subTest(n=n, indices=indices):
+                    messages, proof = tree.open_many(iter(indices))
+                    self.assertEqual(messages, tuple(tree.open(i)[0] for i in indices))
+                    self.assertTrue(mt.verify_many(commitment, indices, messages, proof))
+                    self.assertEqual(len(proof.to_bytes()), 13 + 40 * len(indices) + 32 * len(proof.siblings))
+                    self.assertEqual(mt.BatchProof.from_bytes(proof.to_bytes()), proof)
+                    self.assertTrue(mt.verify_many(
+                        commitment.to_bytes(), indices, messages, proof.to_bytes(),
+                    ))
+        commitment, tree = mt.commit([str(i) for i in range(9)])
+        indices = (0, 3, 8)
+        messages, proof = tree.open_many(indices)
+        self.assertFalse(mt.verify_many(commitment, indices, (b'changed',) + messages[1:], proof))
+        self.assertFalse(mt.verify_many(commitment, (1, 3, 8), messages, proof))
+        for siblings in (proof.siblings[:-1], proof.siblings + (bytes(32),)):
+            self.assertFalse(mt.verify_many(
+                commitment, indices, messages, replace(proof, siblings=siblings),
+            ))
+        for invalid in ((3, 0, 8), (0, 0, 8)):
+            with self.assertRaises(ValueError):
+                replace(proof, indices=invalid)
+        for encoded in (proof.to_bytes()[:-1], proof.to_bytes() + b'x'):
+            self.assertFalse(mt.verify_many(commitment, indices, messages, encoded))
 
 
 
