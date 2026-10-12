@@ -10,5 +10,8 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
 
+[project.optional-dependencies]
+experiments = ["matplotlib>=3.7"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

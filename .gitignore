@@ -1,10 +1,16 @@
 .DS_Store
+
 __MACOSX/
 __pycache__/
+
 *.py[cod]
 .venv/
+
 *.egg-info/
+
 build/
 dist/
+
 results-new/
+results/distribution.json
 backups/
