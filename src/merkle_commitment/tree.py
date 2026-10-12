@@ -1,29 +1,42 @@
-"""随机化 Merkle 向量承诺的构建、开封和验证。"""
+"""把一组消息做成承诺，再用开封信息重算并核对承诺。"""
 
 from secrets import token_bytes
+from typing import Iterable, Tuple, Union
 
 from .sha3 import sha3_256_digest as H
-from .protocol import (Commitment, FullOpening, MerkleProof, NONCE_BYTES,
-                       encode_u64, message_bytes, tree_depth)
+from .protocol import (
+    Commitment, FullOpening, MerkleProof, Message, NONCE_BYTES,
+    encode_u64, message_bytes, tree_depth, validate_leaf_count, validate_u64,
+)
+
+# 前缀让四种哈希输入各有一个明确的类型。
+LEAF_TAG = b'\x00'
+PARENT_TAG = b'\x01'
+PADDING_TAG = b'\x02'
+COMMITMENT_TAG = b'\x03'
 
 
-def _leaf_hash(n, index, message, nonce):
-    # 定长 n/index/length 和 nonce 使编码可以唯一解析。
-    return H(b'\x00' + encode_u64(n) + encode_u64(index)
+def _leaf_hash(n: int, index: int, message: bytes, nonce: bytes) -> bytes:
+    # 记录数量、位置和消息长度，让同一段字节只有一种解释。
+    return H(LEAF_TAG + encode_u64(n) + encode_u64(index)
              + encode_u64(len(message)) + message + nonce)
 
 
-def _parent_hash(left, right):
-    return H(b'\x01' + left + right)
+def _parent_hash(left: bytes, right: bytes) -> bytes:
+    return H(PARENT_TAG + left + right)
 
 
-def _levels(messages, nonces):
+def _levels(
+    messages: Tuple[bytes, ...],
+    nonces: Tuple[bytes, ...],
+) -> Tuple[Tuple[bytes, ...], ...]:
+    """第 0 层放叶子；每次两两合并，最后一层只剩树根。"""
     n = len(messages)
     capacity = 1 << tree_depth(n)
     leaves = [_leaf_hash(n, i, value, nonces[i])
               for i, value in enumerate(messages)]
-    # 补齐到 2 的幂，使用专门类型的占位叶，绝不复制真实末叶。
-    leaves.extend(H(b'\x02' + encode_u64(n) + encode_u64(i))
+    # 不够的位置填占位叶，使每层都能两两配对。
+    leaves.extend(H(PADDING_TAG + encode_u64(n) + encode_u64(i))
                   for i in range(n, capacity))
     levels = [tuple(leaves)]
     while len(levels[-1]) > 1:
@@ -33,52 +46,66 @@ def _levels(messages, nonces):
     return tuple(levels)
 
 
-def _root_hash(n, tree_root):
-    return H(b'\x03' + encode_u64(n) + tree_root)
+def _root_hash(n: int, tree_root: bytes) -> bytes:
+    """把真实叶子数量和树根一起哈希，得到最终承诺摘要。"""
+    return H(COMMITMENT_TAG + encode_u64(n) + tree_root)
 
 
 class MerkleTree:
-    """Commit 的私有状态。每次创建都生成新的独立随机值。"""
+    """承诺方保存的消息、随机值和各层摘要，用来生成开封。"""
 
-    def __init__(self, messages):
+    def __init__(self, messages: Iterable[Message]) -> None:
         if isinstance(messages, (str, bytes)):
             raise TypeError('expected a sequence of messages, not one string')
         self._messages = tuple(message_bytes(value) for value in messages)
-        tree_depth(len(self._messages))
+        validate_leaf_count(len(self._messages))
+        # 每个位置单独生成随机值，开封时只交出这个位置的随机值。
         self._nonces = tuple(token_bytes(NONCE_BYTES) for _ in self._messages)
         self._levels = _levels(self._messages, self._nonces)
-        self.commitment = Commitment(len(self._messages),
-                                      _root_hash(len(self._messages), self._levels[-1][0]))
+        self.commitment = Commitment(
+            len(self._messages),
+            _root_hash(len(self._messages), self._levels[-1][0]),
+        )
 
-    def prove(self, index):
-        encode_u64(index)
+    def prove(self, index: int) -> MerkleProof:
+        """按从叶子到根的顺序，收集这个位置的兄弟摘要。"""
+        validate_u64(index)
         if index >= len(self._messages):
             raise ValueError('index outside committed vector')
         position, siblings = index, []
         for row in self._levels[:-1]:
+            # 同层相邻两个节点是一对：0 和 1、2 和 3……
+            # 翻转最低位找到兄弟，除以 2 则得到父节点的位置。
             siblings.append(row[position ^ 1])
             position //= 2
         return MerkleProof(index, self._nonces[index], tuple(siblings))
 
-    def open(self, index):
+    def open(self, index: int) -> Tuple[bytes, MerkleProof]:
+        """返回消息字节和证明；索引超出范围时抛出 ValueError。"""
         proof = self.prove(index)
         return self._messages[index], proof
 
-    def open_all(self):
+    def open_all(self) -> FullOpening:
+        """交出全部消息和随机值，供验证者重建整棵树。"""
         return FullOpening(self._messages, self._nonces)
 
 
-def commit(messages):
-    """返回 (公开承诺, 私有状态)，私有状态由承诺方保管。"""
+def commit(messages: Iterable[Message]) -> Tuple[Commitment, MerkleTree]:
+    """返回公开承诺和承诺方的树状态；输入应为非空消息列表或迭代器。"""
     tree = MerkleTree(messages)
     return tree.commitment, tree
 
 
-def verify(commitment, index, message, proof):
-    """独立验证指定位置；无需建树状态或其它叶子的随机值。
+def verify(
+    commitment: Union[Commitment, bytes],
+    index: int,
+    message: Message,
+    proof: Union[MerkleProof, bytes],
+) -> bool:
+    """用之前保存的承诺，检查指定位置的消息。
 
-    commitment 必须来自验证者此前保存的可信承诺；index 是验证者期望的位置。
-    畸形证明返回 False；解析器本身则抛 ValueError。
+    承诺和证明可以传对象，也可以传编码后的字节。
+    消息和位置都匹配时返回 True；不匹配或格式不对时返回 False。
     """
     try:
         if type(commitment) is bytes:
@@ -87,7 +114,7 @@ def verify(commitment, index, message, proof):
             proof = MerkleProof.from_bytes(proof)
         if type(commitment) is not Commitment or type(proof) is not MerkleProof:
             return False
-        encode_u64(index)
+        validate_u64(index)
         if index != proof.index or index >= commitment.leaf_count:
             return False
         if len(proof.siblings) != tree_depth(commitment.leaf_count):
@@ -95,16 +122,25 @@ def verify(commitment, index, message, proof):
         current = _leaf_hash(commitment.leaf_count, index, message_bytes(message), proof.nonce)
         position = index
         for sibling in proof.siblings:
-            current = (_parent_hash(sibling, current) if position & 1
-                       else _parent_hash(current, sibling))
+            # 奇数位置是右孩子，兄弟放左边；偶数位置则相反。
+            if position & 1:
+                current = _parent_hash(sibling, current)
+            else:
+                current = _parent_hash(current, sibling)
             position //= 2
         return _root_hash(commitment.leaf_count, current) == commitment.root
     except (TypeError, ValueError, OverflowError):
         return False
 
 
-def verify_all(commitment, opening):
-    """验证完整向量的开封，包含消息的顺序和数量。"""
+def verify_all(
+    commitment: Union[Commitment, bytes],
+    opening: Union[FullOpening, bytes],
+) -> bool:
+    """按全部消息和随机值重建树，与保存的承诺比较。
+
+    承诺和开封可以传对象或编码字节；不匹配或格式不对时返回 False。
+    """
     try:
         if type(commitment) is bytes:
             commitment = Commitment.from_bytes(commitment)

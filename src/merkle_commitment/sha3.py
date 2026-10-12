@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-手动实现的 SHA3-256（Keccak-f[1600] 置换 + SHA-3 填充）。
+手写 SHA3-256：把消息按块混入状态，再取出 32 字节摘要。
 
 对外接口：sha3_256_digest(message) -> 32 字节；sha3_256(message) -> 十六进制。
-Merkle Tree 的实现在 tree.py。
 """
+
+from typing import Union
 
 # Keccak-f[1600] 的旋转偏移和轮常数
 ROTATION_OFFSETS = [
@@ -29,15 +28,15 @@ MASK = (1 << 64) - 1
 RATE_BYTES = 136
 DIGEST_BYTES = 32
 
-def _rotl64(x, n):
-    """64 位循环左移"""
+def _rotl64(x: int, n: int) -> int:
+    """把 64 位整数左移 n 位，移出的位从右边绕回来。"""
     n %= 64
     return ((x << n) | (x >> (64 - n))) & MASK
 
-def _keccak_f1600(state):
-    """Keccak-f[1600] 置换，state 是 5x5 的 64-bit 整数矩阵"""
+def _keccak_f1600(state: list[list[int]]) -> None:
+    """原地进行 24 轮混合；state 有 5 列、5 行，每格是 64 位整数。"""
     for rnd in range(24):
-        # θ 步骤
+        # θ：先求各列的异或值，再把相邻两列的信息混入当前列。
         C = [state[x][0] ^ state[x][1] ^ state[x][2] ^ state[x][3] ^ state[x][4]
              for x in range(5)]
         D = [C[(x - 1) % 5] ^ _rotl64(C[(x + 1) % 5], 1) for x in range(5)]
@@ -45,7 +44,7 @@ def _keccak_f1600(state):
             for y in range(5):
                 state[x][y] ^= D[x]
 
-        # ρ 步骤 + π 步骤
+        # ρ + π：先循环移动格子里的位，再把整个格子移到新位置。
         B = [[0] * 5 for _ in range(5)]
         for x in range(5):
             for y in range(5):
@@ -53,18 +52,19 @@ def _keccak_f1600(state):
                     state[x][y], ROTATION_OFFSETS[x][y]
                 )
 
-        # χ 步骤
+        # χ：用右边两个格子的位，决定当前格子哪些位要翻转。
         for x in range(5):
             for y in range(5):
                 state[x][y] = B[x][y] ^ (
                     (~B[(x + 1) % 5][y] & MASK) & B[(x + 2) % 5][y]
                 )
 
-        # ι 步骤
+        # ι：把本轮常数异或到 (0, 0) 格子。
         state[0][0] ^= ROUND_CONSTANTS[rnd]
 
-def _bytes_to_lanes(data):
-    """将字节串按小端序转成 64-bit lane 列表"""
+
+def _bytes_to_lanes(data: bytes) -> list[int]:
+    """每 8 字节组成一个 64 位整数，先读到的字节放在整数低位。"""
     lanes = []
     for i in range(0, len(data), 8):
         chunk = data[i:i + 8]
@@ -72,51 +72,51 @@ def _bytes_to_lanes(data):
         lanes.append(lane)
     return lanes
 
-def _state_to_bytes(state):
-    """将 state 按 Keccak 顺序和小端序展开为字节串"""
+
+def _state_to_bytes(state: list[list[int]]) -> bytes:
+    """按吸收消息时的格子顺序写回字节，每格先写低位字节。"""
     out = bytearray()
+    # 格子编号是 x + 5*y：先写一行中的 5 个格子，再写下一行。
     for y in range(5):
         for x in range(5):
             out += state[x][y].to_bytes(8, byteorder='little')
     return bytes(out)
 
-def sha3_256_digest(message: bytes) -> bytes:
-    """
-    手动实现 FIPS 202 SHA3-256，后缀 0x06；不是 Keccak-256。
-    输入: bytes
-    输出: 32 字节摘要
-    """
+def sha3_256_digest(message: Union[str, bytes]) -> bytes:
+    """返回 32 字节 SHA3-256 摘要，字符串按 UTF-8 编码。"""
     if isinstance(message, str):
         message = message.encode('utf-8')
     if not isinstance(message, bytes):
         raise TypeError('message must be bytes or str')
 
-    # ---- 填充 (pad10*1, SHA3 域分隔符 0x06) ----
+    # 0x06 是 SHA3 的消息后缀；补零到整块，再把末字节的最高位设为 1。
+    # 若块内的消息占了 135 字节，0x06 正好填在块末，与 0x80 合成 0x86。
     padded = bytearray(message)
     padded.append(0x06)
     while len(padded) % RATE_BYTES != 0:
         padded.append(0x00)
     padded[-1] |= 0x80
 
-    # ---- 初始化 state ----
+    # 状态共 25 个格子，每格 64 位，初始全为零。
     state = [[0] * 5 for _ in range(5)]
 
-    # ---- Absorb 阶段 ----
+    # 每块 136 字节依次异或到状态中，随后执行 24 轮混合。
     for block_start in range(0, len(padded), RATE_BYTES):
         block = padded[block_start:block_start + RATE_BYTES]
         lanes = _bytes_to_lanes(block)
         for i, lane in enumerate(lanes):
+            # state[x][y] 的编号为 x + 5*y，与输出时的顺序一致。
             x = i % 5
             y = i // 5
             state[x][y] ^= lane & MASK
         _keccak_f1600(state)
 
-    # 256-bit 输出小于一个 rate 块，不需要继续置换或通用 squeeze 循环。
+    # SHA3-256 只取前 32 字节，当前状态已包含完整摘要。
     return _state_to_bytes(state)[:DIGEST_BYTES]
 
 
-def sha3_256(message: bytes) -> str:
-    """十六进制展示接口，建树使用原始摘要接口。"""
+def sha3_256(message: Union[str, bytes]) -> str:
+    """将同一个摘要写成十六进制字符串，方便打印。"""
     return sha3_256_digest(message).hex()
 
 
