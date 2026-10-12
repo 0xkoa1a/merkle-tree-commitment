@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="435" viewBox="0 0 720 435" role="img" aria-labelledby="title desc">
+<title id="title">开封位置 2 的 Merkle 证明</title><desc id="desc">蓝色是验证者重算的路径，橙色是证明提供的 P3 和 A0。</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/></marker></defs>
+<rect width="720" height="435" fill="white"/><g font-family="PingFang SC,Microsoft YaHei,Noto Sans CJK SC,sans-serif" text-anchor="middle">
+<path d="M90,303 L180,267" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M270,303 L180,267" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M450,303 L540,267" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M630,303 L540,267" fill="none" stroke="#c2410c" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M180,213 L360,172" fill="none" stroke="#c2410c" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M540,213 L360,172" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M360,118 L360,72" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="286.0" y="18.0" width="148" height="54" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="360" y="45" font-size="20" fill="#1e293b">C</text>
+<text x="360" y="64" font-size="14" fill="#475569">公开承诺</text>
+<rect x="286.0" y="118.0" width="148" height="54" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="360" y="145" font-size="20" fill="#1e293b">T</text>
+<text x="360" y="164" font-size="14" fill="#475569">树根</text>
+<text x="454" y="99" font-size="15" fill="#475569">与数量 3 一起哈希</text>
+<rect x="115.0" y="213.0" width="130" height="54" rx="9" fill="#fff7ed" stroke="#c2410c" stroke-width="2"/>
+<text x="180" y="246" font-size="20" fill="#1e293b">A₀</text>
+<rect x="475.0" y="213.0" width="130" height="54" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="540" y="246" font-size="20" fill="#1e293b">A₁</text>
+<rect x="34.0" y="303.0" width="112" height="54" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+<text x="90" y="336" font-size="20" fill="#1e293b">L₀</text>
+<rect x="214.0" y="303.0" width="112" height="54" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+<text x="270" y="336" font-size="20" fill="#1e293b">L₁</text>
+<rect x="394.0" y="303.0" width="112" height="54" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="450" y="336" font-size="20" fill="#1e293b">L₂</text>
+<rect x="574.0" y="303.0" width="112" height="54" rx="9" fill="#fff7ed" stroke="#c2410c" stroke-width="2"/>
+<text x="630" y="336" font-size="20" fill="#1e293b">P₃</text>
+<text x="90" y="383" font-size="15" fill="#475569">位置 0：“6”</text>
+<text x="270" y="383" font-size="15" fill="#475569">位置 1：“9”</text>
+<text x="450" y="383" font-size="15" fill="#475569">位置 2：“0”</text>
+<text x="630" y="383" font-size="15" fill="#475569">占位叶</text>
+<circle cx="170" cy="415" r="6" fill="#2563eb"/>
+<text x="267" y="420" font-size="16" fill="#1e293b">蓝色：重算路径</text>
+<circle cx="407" cy="415" r="6" fill="#c2410c"/>
+<text x="519" y="420" font-size="16" fill="#1e293b">橙色：证明中的摘要</text>
+</g></svg>

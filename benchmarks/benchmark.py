@@ -117,57 +117,86 @@ def benchmark(repetitions):
 
 
 def render_report(data):
+    """从原始样本生成便于比较的表格，先给结果再说明测量范围。"""
     env = data['environment']
-    command = data.get('source_command',
-                       'PYTHONPATH=src python3 -B -m benchmarks.benchmark --repetitions %d' % data['repetitions'])
-    lines = ['# 性能与验证结果', '', '采集命令：`%s`。' % command, '',
-             '## 环境与测量边界', '',
-             '- 时间：' + env['timestamp'], '- Python：' + env['python'].replace('\n', ' '),
-             '- 设备：%s / %s / %s / %s' % (env['system'], env['os_release'], env['machine'], env['processor']),
-             '- 逻辑 CPU：%s；内存字节：%s。' % (env['logical_cpus'], env['memory_bytes']),
-             '- 硬件记录：' + env.get('hardware_source', '基准启动时只读查询；不支持或受限的字段标为 unavailable。'),
-             '- 每个规模的测量夹具检查有效单项开封、完整开封和哈希调用次数；这些检查不进入计时。',
-             '- 每项一次预热、%d 组样本；表格报告均值及样本标准差。原始样本保存在 results.json。' % data['repetitions'],
-             '- 建树计时包含消息规范化、操作系统随机值生成、哈希及树分配。',
-             '- 单项验证计时包含承诺/证明解析及根比较，消息由调用方提供。',
-             '- 峰值是单独运行 tracemalloc 得到的 Python 分配峰值，不是进程 RSS；其开销未混入计时。',
-             '- 单项证明测索引 n//2；每层方向由索引确定，无单独方向字段。', '',
-             '## 建树与单项开封', '',
-             '| n | 补齐叶数 | 实测哈希次数 | 建树 ms | 吞吐 leaves/s | 生成 μs | 验证 ms | 证明 B | Python 峰值 KiB |',
-             '| --- | --- | --- | --- | --- | --- | --- | --- | --- |']
+    rows = data['tree']
+    largest = max(rows, key=lambda row: row['leaf_count'])
+    repetitions = data['repetitions']
+
+    def timing(metric, scale):
+        return '%.3f ± %.3f' % (metric['mean_seconds'] * scale,
+                               metric['stdev_seconds'] * scale)
+
+    lines = ['# 性能与验证结果', '',
+        '每叶消息为 %d B 时，%d 个叶子的建树均值为 %.3f s，单项验证均值为 %.3f ms，证明编码为 %d B。'
+        % (largest['message_bytes'], largest['leaf_count'], largest['build']['mean_seconds'],
+           largest['verify_wire']['mean_seconds'] * 1e3, largest['proof_bytes']), '',
+        '建树工作量随补齐叶数增长；证明大小随树深度增长。长消息会增加单次哈希的吸收块数，进一步增加建树成本。', '']
     if 'source_commit' in data:
-        lines[4:4] = ['> 这是重构前提交 `%s` 的实测基线。原始样本保留；当前代码重跑请使用 README 中的新入口。' % data['source_commit'], '']
-    for row in data['tree']:
-        lines.append('| %d | %d | %d | %.3f ± %.3f | %.0f | %.3f ± %.3f | %.3f ± %.3f | %d | %.1f |' %
+        lines += ['> 本报告保留提交 `%s` 的重构前实测基线。当前版本的测量入口见 [README](../README.md)；本次整理仅改变报告表达。'
+                  % data['source_commit'], '']
+
+    timestamp = datetime.fromisoformat(env['timestamp']).strftime('%Y-%m-%d %H:%M:%S %z')
+    lines += ['## 测量条件', '',
+        '采样时间：%s。设备为 %s，%s 个逻辑 CPU；Python %s，%s %s（%s）。'
+        % (timestamp, env['processor'], env['logical_cpus'], env['python'].split()[0],
+           env['system'], env['os_release'], env['machine']), '',
+        '- 规模实验每叶消息固定为 %d B，验证位置为 n//2，即列表中间的位置。' % largest['message_bytes'],
+        '- 每项先预热一次，再取 %d 组样本。表格的“均值 ± 标准差”反映这 %d 组的计时与波动；批量调用按每次耗时折算，次数见原始 JSON 的 batch 字段。' % (repetitions, repetitions),
+        '- 建树计时包含消息转换、随机值生成、哈希和树分配。单项验证输入编码字节，包含解析及根比较；完整验证输入已解析对象，包含重建和比较，不包含开封解析。',
+        '- Python 分配峰值用 tracemalloc 单独测量，单位为 KiB（1024 B）；它不是进程总内存，追踪开销也未混入延迟样本。', '',
+        '## 建树成本', '',
+        'n 是真实叶子数，N 是补齐后的叶子数。哈希次数由单独的一次构建计数得到。', '',
+        '| n | N | 哈希调用次数 | 建树 ms | 吞吐 leaves/s |',
+        '| --- | --- | --- | --- | --- |']
+    for row in rows:
+        lines.append('| %d | %d | %d | %s | %.0f |' %
             (row['leaf_count'], row['padded_leaf_count'], row['hash_calls_observed'],
-             row['build']['mean_seconds'] * 1e3, row['build']['stdev_seconds'] * 1e3,
-             row['leaves_per_second'], row['prove']['mean_seconds'] * 1e6,
-             row['prove']['stdev_seconds'] * 1e6,
-             row['verify_wire']['mean_seconds'] * 1e3, row['verify_wire']['stdev_seconds'] * 1e3,
-             row['proof_bytes'], row['python_peak_bytes'] / 1024))
-    lines += ['', '所有承诺编码均为 41 B；单项证明实际编码为 43 + 32h B，h 为补齐树深度。消息内容不含在这个证明大小中。',
-              '补齐后的叶数 N 满足 n ≤ N < 2n，建树调用哈希 2N 次（包括占位叶和最终数量绑定），因此为 O(n)。',
-              '单项验证调用 h+2 次哈希；生成证明仅取兄弟摘要，为 O(log n)。这些次数不等同于 Keccak 置换次数，长消息一次哈希可以有多次置换。', '',
-              '## 完整开封及证明序列化', '',
-              '| n | 完整开封 B | 完整验证 ms | 单项证明序列化 μs |', '| --- | --- | --- | --- |']
-    for row in data['tree']:
-        lines.append('| %d | %d | %.3f ± %.3f | %.3f ± %.3f |' % (row['leaf_count'], row['full_opening_bytes'],
-                     row['verify_full']['mean_seconds'] * 1e3,
-                     row['verify_full']['stdev_seconds'] * 1e3,
-                     row['proof_serialization']['mean_seconds'] * 1e6,
-                     row['proof_serialization']['stdev_seconds'] * 1e6))
-    lines += ['', '## 手写 SHA3-256', '', '| 输入 B | 置换次数 | 哈希 ms（均值 ± 标准差） |', '| --- | --- | --- |']
+             timing(row['build'], 1e3), row['leaves_per_second']))
+    lines += ['', '建树共调用哈希 2N 次：N 个叶子、N−1 个内部节点和一次最终承诺。'
+              'n≤N<2n，因此固定消息长度下为 O(n)。跨越二次幂边界会增加占位叶；例如 n=3 要补到 N=4。', '',
+              '## 单项证明的时间与大小', '',
+              'h 是树深度。生成证明只收集兄弟摘要；验证还要执行 h+2 次哈希。', '',
+              '| n | h | 生成 μs | 验证 ms（含解析） | 证明 B |',
+              '| --- | --- | --- | --- | --- |']
+    for row in rows:
+        lines.append('| %d | %d | %s | %s | %d |' %
+            (row['leaf_count'], row['depth'], timing(row['prove'], 1e6),
+             timing(row['verify_wire'], 1e3), row['proof_bytes']))
+    serial = [row['proof_serialization']['mean_seconds'] * 1e6 for row in rows]
+    lines += ['', '所有承诺编码均为 %d B。证明实际编码为 43+32h B，消息本身不计入这个大小。'
+              '每多一层路径，证明增加 32 B。' % largest['commitment_bytes'], '',
+              '证明序列化另行计时，各规模的均值为 %.2f–%.2f μs；完整样本见原始 JSON。'
+              % (min(serial), max(serial)), '',
+              '## 完整开封与内存', '',
+              '本表仍使用每叶 %d B 消息。完整开封包含全部消息和随机值，验证需要重建整棵树。'
+              % largest['message_bytes'], '',
+              '| n | 完整开封 B | 完整验证 ms（不含解析） | Python 峰值 KiB |',
+              '| --- | --- | --- | --- |']
+    for row in rows:
+        lines.append('| %d | %d | %s | %.1f |' %
+            (row['leaf_count'], row['full_opening_bytes'], timing(row['verify_full'], 1e3),
+             row['python_peak_bytes'] / 1024))
+    lines += ['', '## 手写 SHA3-256 的块边界', '',
+              '一次哈希可包含多次状态置换。135 B 输入与后缀合成一个块；136 B 输入要增加填充块，置换次数由 1 变为 2，耗时也随之增加。', '',
+              '| 输入 B | 置换次数 | 哈希 ms |', '| --- | --- | --- |']
     for row in data['hash']:
-        lines.append('| %d | %d | %.3f ± %.3f |' % (row['message_bytes'], row['permutations'],
-            row['hash']['mean_seconds'] * 1e3, row['hash']['stdev_seconds'] * 1e3))
-    lines += ['', '## 消息长度对建树的影响', '', '| n | 每叶消息 B | 建树 ms（均值 ± 标准差） |', '| --- | --- | --- |']
+        lines.append('| %d | %d | %s |' %
+                     (row['message_bytes'], row['permutations'], timing(row['hash'], 1e3)))
+    lines += ['', '## 消息长度对建树的影响', '',
+              '固定 32 个位置，每个位置放相同内容、相同长度的消息；每个叶子仍独立生成随机值。', '',
+              '| n | 每叶消息 B | 建树 ms |', '| --- | --- | --- |']
     for row in data['message_length']:
-        lines.append('| %d | %d | %.3f ± %.3f |' % (row['leaf_count'], row['message_bytes'],
-                     row['build']['mean_seconds'] * 1e3, row['build']['stdev_seconds'] * 1e3))
-    lines += ['', '## 结果解释', '',
-              '建树工作量随补齐叶数线性增长；跨越 2 的幂时，占位叶会增加实际工作量。',
-              '证明大小由实际序列化测得，随深度每增加一级增长 32 B。长消息增加叶子哈希吸收的块数，影响建树和验证时间。',
-              '所有时间都是该设备上纯 Python 实现的实测值；微秒级生成时间会受调度和计时开销影响，跨设备比较应重新运行。', '']
+        lines.append('| %d | %d | %s |' %
+                     (row['leaf_count'], row['message_bytes'], timing(row['build'], 1e3)))
+    lines += ['', '本实现的真实叶子哈希输入有 57 B 固定开销。消息为 256 B 或 4096 B 时，需要吸收更多块，因此相同叶子数量也会花更多时间。', '',
+              '## 原始记录与复现', '',
+              '全部样本和环境字段保存在 [results.json](results.json)，当时的执行输出见 [run.log](run.log)。'
+              '这些数据用于判断该设备上的纯 Python 实现；微秒级操作还会受计时和系统调度影响。', '']
+    if 'source_command' in data:
+        lines += ['当时的采集命令为 `%s`，对应前述历史提交。' % data['source_command'], '']
+    if 'hardware_source' in env:
+        lines += ['> ' + env['hardware_source'], '']
     return '\n'.join(lines)
 
 

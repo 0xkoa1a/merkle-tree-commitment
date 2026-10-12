@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="380" viewBox="0 0 640 380" role="img" aria-labelledby="title desc">
+<title id="title">SHA3-256 的计算流程</title><desc id="desc">消息先填充分块，每块异或到状态后执行24轮混合，最后取32字节摘要。</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/></marker></defs>
+<rect width="640" height="380" fill="white"/><g font-family="PingFang SC,Microsoft YaHei,Noto Sans CJK SC,sans-serif" text-anchor="middle">
+<path d="M265,63 L265,97" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M265,151 L265,185" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M265,239 L265,300" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="115.0" y="9.0" width="300" height="54" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+<text x="265" y="36" font-size="20" fill="#1e293b">消息：填充并分块</text>
+<text x="265" y="55" font-size="14" fill="#475569">每块 136 B</text>
+<rect x="115.0" y="97.0" width="300" height="54" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="265" y="124" font-size="20" fill="#1e293b">当前块异或到前 17 格</text>
+<text x="265" y="143" font-size="14" fill="#475569">复用同一个 25 格状态</text>
+<rect x="115.0" y="185.0" width="300" height="54" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="265" y="212" font-size="20" fill="#1e293b">24 轮状态混合</text>
+<text x="265" y="231" font-size="14" fill="#475569">Keccak-f[1600]</text>
+<rect x="115.0" y="300.0" width="300" height="54" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="265" y="327" font-size="20" fill="#1e293b">取出前 32 B</text>
+<text x="265" y="346" font-size="14" fill="#475569">最终摘要</text>
+<text x="355" y="276" font-size="15" fill="#475569">所有块已处理完</text>
+<path d="M415,212 L540,212 L540,124 L415,124" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="537" y="97" font-size="15" fill="#475569">还有下一块</text>
+</g></svg>

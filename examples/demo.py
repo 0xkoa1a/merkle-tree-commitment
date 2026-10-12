@@ -4,7 +4,7 @@ from merkle_commitment import commit, verify, verify_all
 
 
 def main():
-    public, state = commit(['a', 'b', 'a', '你好'])
+    public, state = commit(['6', '9', '0'])
     message, proof = state.open(2)
     print('commitment:', public.to_bytes().hex())
     print('proof bytes:', len(proof.to_bytes()))
