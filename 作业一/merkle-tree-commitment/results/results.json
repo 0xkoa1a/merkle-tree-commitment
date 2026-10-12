@@ -1,0 +1,871 @@
+{
+  "environment": {
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]",
+    "system": "Darwin",
+    "os_release": "27.0.0",
+    "machine": "arm64",
+    "processor": "Apple M2 Pro",
+    "logical_cpus": "12",
+    "memory_bytes": "34359738368",
+    "executable": "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "timestamp": "2026-10-12T11:28:44.158252+08:00",
+    "sandbox_initial_hardware": {
+      "processor": "arm",
+      "logical_cpus": "unavailable",
+      "memory_bytes": "unavailable"
+    },
+    "hardware_source": "CPU/核心/内存由基准完成后单独执行只读 /usr/sbin/sysctl 获取；初始沙箱读数另存。"
+  },
+  "repetitions": 5,
+  "method": "一次预热；perf_counter_ns；计时不含tracemalloc；单独测建树峰值Python分配",
+  "tree": [
+    {
+      "leaf_count": 1,
+      "message_bytes": 32,
+      "depth": 0,
+      "padded_leaf_count": 1,
+      "hash_calls_observed": 2,
+      "commitment_bytes": 41,
+      "proof_bytes": 43,
+      "full_opening_bytes": 81,
+      "python_peak_bytes": 5283,
+      "build": {
+        "samples_seconds": [
+          0.000945459,
+          0.000936125,
+          0.000962833,
+          0.001116417,
+          0.001014584
+        ],
+        "mean_seconds": 0.0009950836,
+        "median_seconds": 0.000962833,
+        "stdev_seconds": 7.429817998309246e-05,
+        "min_seconds": 0.000936125,
+        "max_seconds": 0.001116417,
+        "batch": 1
+      },
+      "prove": {
+        "samples_seconds": [
+          1.536875e-06,
+          1.576875e-06,
+          1.545835e-06,
+          1.50354e-06,
+          1.41875e-06
+        ],
+        "mean_seconds": 1.516375e-06,
+        "median_seconds": 1.536875e-06,
+        "stdev_seconds": 6.050572173356834e-08,
+        "min_seconds": 1.41875e-06,
+        "max_seconds": 1.576875e-06,
+        "batch": 200
+      },
+      "verify_wire": {
+        "samples_seconds": [
+          0.0009409625,
+          0.0010149542,
+          0.0009890417,
+          0.0009758166999999999,
+          0.0009718541999999999
+        ],
+        "mean_seconds": 0.00097852586,
+        "median_seconds": 0.0009758166999999999,
+        "stdev_seconds": 2.6927975488383844e-05,
+        "min_seconds": 0.0009409625,
+        "max_seconds": 0.0010149542,
+        "batch": 10
+      },
+      "verify_full": {
+        "samples_seconds": [
+          0.000906417,
+          0.000892792,
+          0.000893208,
+          0.000960167,
+          0.000958625
+        ],
+        "mean_seconds": 0.0009222418,
+        "median_seconds": 0.000906417,
+        "stdev_seconds": 3.4361077525304696e-05,
+        "min_seconds": 0.000892792,
+        "max_seconds": 0.000960167,
+        "batch": 1
+      },
+      "proof_serialization": {
+        "samples_seconds": [
+          5.94165e-07,
+          5.5896e-07,
+          5.59165e-07,
+          5.6021e-07,
+          5.49375e-07
+        ],
+        "mean_seconds": 5.64375e-07,
+        "median_seconds": 5.59165e-07,
+        "stdev_seconds": 1.722104562737115e-08,
+        "min_seconds": 5.49375e-07,
+        "max_seconds": 5.94165e-07,
+        "batch": 200
+      },
+      "leaves_per_second": 1004.9406904103334
+    },
+    {
+      "leaf_count": 3,
+      "message_bytes": 32,
+      "depth": 2,
+      "padded_leaf_count": 4,
+      "hash_calls_observed": 8,
+      "commitment_bytes": 41,
+      "proof_bytes": 107,
+      "full_opening_bytes": 225,
+      "python_peak_bytes": 6040,
+      "build": {
+        "samples_seconds": [
+          0.003999166,
+          0.003739542,
+          0.003686917,
+          0.003877542,
+          0.003802416
+        ],
+        "mean_seconds": 0.0038211166,
+        "median_seconds": 0.003802416,
+        "stdev_seconds": 0.00012237143769197126,
+        "min_seconds": 0.003686917,
+        "max_seconds": 0.003999166,
+        "batch": 1
+      },
+      "prove": {
+        "samples_seconds": [
+          1.792915e-06,
+          1.730625e-06,
+          1.72771e-06,
+          1.73479e-06,
+          1.73479e-06
+        ],
+        "mean_seconds": 1.744166e-06,
+        "median_seconds": 1.73479e-06,
+        "stdev_seconds": 2.7415517366994902e-08,
+        "min_seconds": 1.72771e-06,
+        "max_seconds": 1.792915e-06,
+        "batch": 200
+      },
+      "verify_wire": {
+        "samples_seconds": [
+          0.0019448333,
+          0.002064375,
+          0.00195675,
+          0.0019960875,
+          0.0019479
+        ],
+        "mean_seconds": 0.00198198916,
+        "median_seconds": 0.00195675,
+        "stdev_seconds": 5.0412879759571234e-05,
+        "min_seconds": 0.0019448333,
+        "max_seconds": 0.002064375,
+        "batch": 10
+      },
+      "verify_full": {
+        "samples_seconds": [
+          0.003604833,
+          0.003700792,
+          0.003985625,
+          0.003652417,
+          0.0038855
+        ],
+        "mean_seconds": 0.0037658334,
+        "median_seconds": 0.003700792,
+        "stdev_seconds": 0.00016251402623250697,
+        "min_seconds": 0.003604833,
+        "max_seconds": 0.003985625,
+        "batch": 1
+      },
+      "proof_serialization": {
+        "samples_seconds": [
+          5.6e-07,
+          5.8875e-07,
+          5.5604e-07,
+          5.575e-07,
+          5.410399999999999e-07
+        ],
+        "mean_seconds": 5.60666e-07,
+        "median_seconds": 5.575e-07,
+        "stdev_seconds": 1.7362012556152596e-08,
+        "min_seconds": 5.410399999999999e-07,
+        "max_seconds": 5.8875e-07,
+        "batch": 200
+      },
+      "leaves_per_second": 785.1108233650865
+    },
+    {
+      "leaf_count": 8,
+      "message_bytes": 32,
+      "depth": 3,
+      "padded_leaf_count": 8,
+      "hash_calls_observed": 16,
+      "commitment_bytes": 41,
+      "proof_bytes": 139,
+      "full_opening_bytes": 585,
+      "python_peak_bytes": 7069,
+      "build": {
+        "samples_seconds": [
+          0.007678375,
+          0.007509458,
+          0.007558208,
+          0.007604458,
+          0.007890791
+        ],
+        "mean_seconds": 0.007648258,
+        "median_seconds": 0.007604458,
+        "stdev_seconds": 0.00014918291815586637,
+        "min_seconds": 0.007509458,
+        "max_seconds": 0.007890791,
+        "batch": 1
+      },
+      "prove": {
+        "samples_seconds": [
+          1.935835e-06,
+          1.90125e-06,
+          1.894375e-06,
+          1.968335e-06,
+          1.951875e-06
+        ],
+        "mean_seconds": 1.930334e-06,
+        "median_seconds": 1.935835e-06,
+        "stdev_seconds": 3.192679290188732e-08,
+        "min_seconds": 1.894375e-06,
+        "max_seconds": 1.968335e-06,
+        "batch": 200
+      },
+      "verify_wire": {
+        "samples_seconds": [
+          0.0023851333,
+          0.0023742125,
+          0.0024061709,
+          0.0024020792,
+          0.002377225
+        ],
+        "mean_seconds": 0.00238896418,
+        "median_seconds": 0.0023851333,
+        "stdev_seconds": 1.4475591647908574e-05,
+        "min_seconds": 0.0023742125,
+        "max_seconds": 0.0024061709,
+        "batch": 10
+      },
+      "verify_full": {
+        "samples_seconds": [
+          0.007318541,
+          0.007554791,
+          0.007475792,
+          0.007446125,
+          0.007499833
+        ],
+        "mean_seconds": 0.0074590164,
+        "median_seconds": 0.007475792,
+        "stdev_seconds": 8.806207440663677e-05,
+        "min_seconds": 0.007318541,
+        "max_seconds": 0.007554791,
+        "batch": 1
+      },
+      "proof_serialization": {
+        "samples_seconds": [
+          5.947899999999999e-07,
+          5.652100000000001e-07,
+          5.65415e-07,
+          5.675e-07,
+          5.65415e-07
+        ],
+        "mean_seconds": 5.71666e-07,
+        "median_seconds": 5.65415e-07,
+        "stdev_seconds": 1.2960563934489853e-08,
+        "min_seconds": 5.652100000000001e-07,
+        "max_seconds": 5.947899999999999e-07,
+        "batch": 200
+      },
+      "leaves_per_second": 1045.9898188580983
+    },
+    {
+      "leaf_count": 32,
+      "message_bytes": 32,
+      "depth": 5,
+      "padded_leaf_count": 32,
+      "hash_calls_observed": 64,
+      "commitment_bytes": 41,
+      "proof_bytes": 203,
+      "full_opening_bytes": 2313,
+      "python_peak_bytes": 12989,
+      "build": {
+        "samples_seconds": [
+          0.029258958,
+          0.029407625,
+          0.029245583,
+          0.029691459,
+          0.037216875
+        ],
+        "mean_seconds": 0.0309641,
+        "median_seconds": 0.029407625,
+        "stdev_seconds": 0.003500008380725111,
+        "min_seconds": 0.029245583,
+        "max_seconds": 0.037216875,
+        "batch": 1
+      },
+      "prove": {
+        "samples_seconds": [
+          2.445625e-06,
+          2.419375e-06,
+          2.2841649999999998e-06,
+          2.23104e-06,
+          2.22104e-06
+        ],
+        "mean_seconds": 2.320249e-06,
+        "median_seconds": 2.2841649999999998e-06,
+        "stdev_seconds": 1.0565016761699911e-07,
+        "min_seconds": 2.22104e-06,
+        "max_seconds": 2.445625e-06,
+        "batch": 200
+      },
+      "verify_wire": {
+        "samples_seconds": [
+          0.003256025,
+          0.0031968,
+          0.0032465875,
+          0.0032587792000000003,
+          0.0032389333
+        ],
+        "mean_seconds": 0.003239425,
+        "median_seconds": 0.0032465875,
+        "stdev_seconds": 2.509272234025242e-05,
+        "min_seconds": 0.0031968,
+        "max_seconds": 0.0032587792000000003,
+        "batch": 10
+      },
+      "verify_full": {
+        "samples_seconds": [
+          0.029360459,
+          0.029525125,
+          0.029289958,
+          0.029541542,
+          0.029940667
+        ],
+        "mean_seconds": 0.0295315502,
+        "median_seconds": 0.029525125,
+        "stdev_seconds": 0.0002525651723431006,
+        "min_seconds": 0.029289958,
+        "max_seconds": 0.029940667,
+        "batch": 1
+      },
+      "proof_serialization": {
+        "samples_seconds": [
+          5.91665e-07,
+          5.879199999999999e-07,
+          5.883350000000001e-07,
+          5.8854e-07,
+          5.866649999999999e-07
+        ],
+        "mean_seconds": 5.88625e-07,
+        "median_seconds": 5.883350000000001e-07,
+        "stdev_seconds": 1.8487529580774323e-09,
+        "min_seconds": 5.866649999999999e-07,
+        "max_seconds": 5.91665e-07,
+        "batch": 200
+      },
+      "leaves_per_second": 1033.4548719323345
+    },
+    {
+      "leaf_count": 128,
+      "message_bytes": 32,
+      "depth": 7,
+      "padded_leaf_count": 128,
+      "hash_calls_observed": 256,
+      "commitment_bytes": 41,
+      "proof_bytes": 267,
+      "full_opening_bytes": 9225,
+      "python_peak_bytes": 35725,
+      "build": {
+        "samples_seconds": [
+          0.118251333,
+          0.117573916,
+          0.1197205,
+          0.118998125,
+          0.118462208
+        ],
+        "mean_seconds": 0.1186012164,
+        "median_seconds": 0.118462208,
+        "stdev_seconds": 0.0008073753858474355,
+        "min_seconds": 0.117573916,
+        "max_seconds": 0.1197205,
+        "batch": 1
+      },
+      "prove": {
+        "samples_seconds": [
+          2.646665e-06,
+          2.6325e-06,
+          2.610415e-06,
+          2.64146e-06,
+          2.635625e-06
+        ],
+        "mean_seconds": 2.633333e-06,
+        "median_seconds": 2.635625e-06,
+        "stdev_seconds": 1.3919161522879294e-08,
+        "min_seconds": 2.610415e-06,
+        "max_seconds": 2.646665e-06,
+        "batch": 200
+      },
+      "verify_wire": {
+        "samples_seconds": [
+          0.0042645709,
+          0.004235625,
+          0.0042420417,
+          0.0042602209,
+          0.0042137
+        ],
+        "mean_seconds": 0.0042432317,
+        "median_seconds": 0.0042420417,
+        "stdev_seconds": 2.0465786468274506e-05,
+        "min_seconds": 0.0042137,
+        "max_seconds": 0.0042645709,
+        "batch": 10
+      },
+      "verify_full": {
+        "samples_seconds": [
+          0.119979542,
+          0.118775958,
+          0.11950275,
+          0.119171333,
+          0.118653458
+        ],
+        "mean_seconds": 0.1192166082,
+        "median_seconds": 0.119171333,
+        "stdev_seconds": 0.0005425185948759705,
+        "min_seconds": 0.118653458,
+        "max_seconds": 0.119979542,
+        "batch": 1
+      },
+      "proof_serialization": {
+        "samples_seconds": [
+          5.977100000000001e-07,
+          5.71875e-07,
+          5.6958e-07,
+          5.7021e-07,
+          5.7e-07
+        ],
+        "mean_seconds": 5.75875e-07,
+        "median_seconds": 5.7021e-07,
+        "stdev_seconds": 1.223725970142011e-08,
+        "min_seconds": 5.6958e-07,
+        "max_seconds": 5.977100000000001e-07,
+        "batch": 200
+      },
+      "leaves_per_second": 1079.246941011981
+    },
+    {
+      "leaf_count": 256,
+      "message_bytes": 32,
+      "depth": 8,
+      "padded_leaf_count": 256,
+      "hash_calls_observed": 512,
+      "commitment_bytes": 41,
+      "proof_bytes": 299,
+      "full_opening_bytes": 18441,
+      "python_peak_bytes": 65717,
+      "build": {
+        "samples_seconds": [
+          0.238055667,
+          0.236542416,
+          0.2382075,
+          0.238510792,
+          0.23845475
+        ],
+        "mean_seconds": 0.237954225,
+        "median_seconds": 0.2382075,
+        "stdev_seconds": 0.0008105454118345207,
+        "min_seconds": 0.236542416,
+        "max_seconds": 0.238510792,
+        "batch": 1
+      },
+      "prove": {
+        "samples_seconds": [
+          2.747705e-06,
+          2.84833e-06,
+          2.814375e-06,
+          2.895835e-06,
+          2.93458e-06
+        ],
+        "mean_seconds": 2.848165e-06,
+        "median_seconds": 2.84833e-06,
+        "stdev_seconds": 7.241198804410782e-08,
+        "min_seconds": 2.747705e-06,
+        "max_seconds": 2.93458e-06,
+        "batch": 200
+      },
+      "verify_wire": {
+        "samples_seconds": [
+          0.0047196582999999995,
+          0.0047338084,
+          0.0047189666,
+          0.0047123875,
+          0.0046754916
+        ],
+        "mean_seconds": 0.00471206248,
+        "median_seconds": 0.0047189666,
+        "stdev_seconds": 2.1884830894183402e-05,
+        "min_seconds": 0.0046754916,
+        "max_seconds": 0.0047338084,
+        "batch": 10
+      },
+      "verify_full": {
+        "samples_seconds": [
+          0.240798792,
+          0.242167083,
+          0.249511916,
+          0.270242916,
+          0.242669708
+        ],
+        "mean_seconds": 0.249078083,
+        "median_seconds": 0.242669708,
+        "stdev_seconds": 0.01230359924567892,
+        "min_seconds": 0.240798792,
+        "max_seconds": 0.270242916,
+        "batch": 1
+      },
+      "proof_serialization": {
+        "samples_seconds": [
+          5.84795e-07,
+          5.79165e-07,
+          6.45835e-07,
+          5.78125e-07,
+          5.960399999999999e-07
+        ],
+        "mean_seconds": 5.967919999999999e-07,
+        "median_seconds": 5.84795e-07,
+        "stdev_seconds": 2.832347692286386e-08,
+        "min_seconds": 5.78125e-07,
+        "max_seconds": 6.45835e-07,
+        "batch": 200
+      },
+      "leaves_per_second": 1075.8371699430847
+    },
+    {
+      "leaf_count": 1024,
+      "message_bytes": 32,
+      "depth": 10,
+      "padded_leaf_count": 1024,
+      "hash_calls_observed": 2048,
+      "commitment_bytes": 41,
+      "proof_bytes": 363,
+      "full_opening_bytes": 73737,
+      "python_peak_bytes": 246913,
+      "build": {
+        "samples_seconds": [
+          0.955265708,
+          0.9511775,
+          0.951663167,
+          0.983516584,
+          0.956042792
+        ],
+        "mean_seconds": 0.9595331502,
+        "median_seconds": 0.955265708,
+        "stdev_seconds": 0.013577115728006003,
+        "min_seconds": 0.9511775,
+        "max_seconds": 0.983516584,
+        "batch": 1
+      },
+      "prove": {
+        "samples_seconds": [
+          3.08646e-06,
+          3.0752049999999997e-06,
+          3.157085e-06,
+          3.0554149999999998e-06,
+          3.219375e-06
+        ],
+        "mean_seconds": 3.118708e-06,
+        "median_seconds": 3.08646e-06,
+        "stdev_seconds": 6.809017436458809e-08,
+        "min_seconds": 3.0554149999999998e-06,
+        "max_seconds": 3.219375e-06,
+        "batch": 200
+      },
+      "verify_wire": {
+        "samples_seconds": [
+          0.0056179875,
+          0.0056025917,
+          0.0055966417,
+          0.0057373916,
+          0.0056151583
+        ],
+        "mean_seconds": 0.00563395416,
+        "median_seconds": 0.0056151583,
+        "stdev_seconds": 5.8487917869744556e-05,
+        "min_seconds": 0.0055966417,
+        "max_seconds": 0.0057373916,
+        "batch": 10
+      },
+      "verify_full": {
+        "samples_seconds": [
+          0.943772041,
+          0.962488458,
+          0.962377125,
+          0.97387025,
+          0.974546542
+        ],
+        "mean_seconds": 0.9634108832,
+        "median_seconds": 0.962488458,
+        "stdev_seconds": 0.012459984931663478,
+        "min_seconds": 0.943772041,
+        "max_seconds": 0.974546542,
+        "batch": 1
+      },
+      "proof_serialization": {
+        "samples_seconds": [
+          6.2896e-07,
+          6.5333e-07,
+          6.4583e-07,
+          6.064550000000001e-07,
+          6.23125e-07
+        ],
+        "mean_seconds": 6.315400000000001e-07,
+        "median_seconds": 6.2896e-07,
+        "stdev_seconds": 1.861272447816278e-08,
+        "min_seconds": 6.064550000000001e-07,
+        "max_seconds": 6.5333e-07,
+        "batch": 200
+      },
+      "leaves_per_second": 1067.18564104488
+    }
+  ],
+  "hash": [
+    {
+      "message_bytes": 0,
+      "permutations": 1,
+      "hash": {
+        "samples_seconds": [
+          0.00048472909999999997,
+          0.0004905667,
+          0.0004954958,
+          0.0004791,
+          0.0004807
+        ],
+        "mean_seconds": 0.00048611832,
+        "median_seconds": 0.00048472909999999997,
+        "stdev_seconds": 6.8605786058466215e-06,
+        "min_seconds": 0.0004791,
+        "max_seconds": 0.0004954958,
+        "batch": 10
+      }
+    },
+    {
+      "message_bytes": 32,
+      "permutations": 1,
+      "hash": {
+        "samples_seconds": [
+          0.0004754167,
+          0.0004783333,
+          0.0004965667000000001,
+          0.0004704583,
+          0.000483025
+        ],
+        "mean_seconds": 0.00048076,
+        "median_seconds": 0.0004783333,
+        "stdev_seconds": 9.944178454754348e-06,
+        "min_seconds": 0.0004704583,
+        "max_seconds": 0.0004965667000000001,
+        "batch": 10
+      }
+    },
+    {
+      "message_bytes": 135,
+      "permutations": 1,
+      "hash": {
+        "samples_seconds": [
+          0.0004539958,
+          0.0004641417,
+          0.0004540625,
+          0.0004604542,
+          0.0004564
+        ],
+        "mean_seconds": 0.00045781084,
+        "median_seconds": 0.0004564,
+        "stdev_seconds": 4.4063077766992315e-06,
+        "min_seconds": 0.0004539958,
+        "max_seconds": 0.0004641417,
+        "batch": 10
+      }
+    },
+    {
+      "message_bytes": 136,
+      "permutations": 2,
+      "hash": {
+        "samples_seconds": [
+          0.0009576959,
+          0.0009298791,
+          0.0009198292,
+          0.0009420708000000001,
+          0.000939075
+        ],
+        "mean_seconds": 0.00093771,
+        "median_seconds": 0.000939075,
+        "stdev_seconds": 1.4154169031596324e-05,
+        "min_seconds": 0.0009198292,
+        "max_seconds": 0.0009576959,
+        "batch": 10
+      }
+    },
+    {
+      "message_bytes": 137,
+      "permutations": 2,
+      "hash": {
+        "samples_seconds": [
+          0.0009253958,
+          0.0009424833,
+          0.0009513792,
+          0.0009249,
+          0.0009351083
+        ],
+        "mean_seconds": 0.00093585332,
+        "median_seconds": 0.0009351083,
+        "stdev_seconds": 1.1345699437980892e-05,
+        "min_seconds": 0.0009249,
+        "max_seconds": 0.0009513792,
+        "batch": 10
+      }
+    },
+    {
+      "message_bytes": 273,
+      "permutations": 3,
+      "hash": {
+        "samples_seconds": [
+          0.0014203667,
+          0.0013874416,
+          0.0014203458,
+          0.0013949583,
+          0.0013692
+        ],
+        "mean_seconds": 0.00139846248,
+        "median_seconds": 0.0013949583,
+        "stdev_seconds": 2.207207714074499e-05,
+        "min_seconds": 0.0013692,
+        "max_seconds": 0.0014203667,
+        "batch": 10
+      }
+    },
+    {
+      "message_bytes": 4096,
+      "permutations": 31,
+      "hash": {
+        "samples_seconds": [
+          0.014182533300000001,
+          0.014275525,
+          0.014529541699999999,
+          0.0145628458,
+          0.0144788959
+        ],
+        "mean_seconds": 0.014405868340000001,
+        "median_seconds": 0.0144788959,
+        "stdev_seconds": 0.00016743504249070072,
+        "min_seconds": 0.014182533300000001,
+        "max_seconds": 0.0145628458,
+        "batch": 10
+      }
+    }
+  ],
+  "message_length": [
+    {
+      "leaf_count": 32,
+      "message_bytes": 0,
+      "build": {
+        "samples_seconds": [
+          0.030122083,
+          0.030283583,
+          0.029960833,
+          0.030308458,
+          0.030255875
+        ],
+        "mean_seconds": 0.0301861664,
+        "median_seconds": 0.030255875,
+        "stdev_seconds": 0.00014507441332916042,
+        "min_seconds": 0.029960833,
+        "max_seconds": 0.030308458,
+        "batch": 1
+      }
+    },
+    {
+      "leaf_count": 32,
+      "message_bytes": 32,
+      "build": {
+        "samples_seconds": [
+          0.030317291,
+          0.030047167,
+          0.030070333,
+          0.029633708,
+          0.029830541
+        ],
+        "mean_seconds": 0.029979808,
+        "median_seconds": 0.030047167,
+        "stdev_seconds": 0.0002591778506566481,
+        "min_seconds": 0.029633708,
+        "max_seconds": 0.030317291,
+        "batch": 1
+      }
+    },
+    {
+      "leaf_count": 32,
+      "message_bytes": 256,
+      "build": {
+        "samples_seconds": [
+          0.059518334,
+          0.059381375,
+          0.059017167,
+          0.059292333,
+          0.06054075
+        ],
+        "mean_seconds": 0.0595499918,
+        "median_seconds": 0.059381375,
+        "stdev_seconds": 0.0005833793742331809,
+        "min_seconds": 0.059017167,
+        "max_seconds": 0.06054075,
+        "batch": 1
+      }
+    },
+    {
+      "leaf_count": 32,
+      "message_bytes": 4096,
+      "build": {
+        "samples_seconds": [
+          0.495482125,
+          0.494282166,
+          0.473798291,
+          0.470135333,
+          0.479117667
+        ],
+        "mean_seconds": 0.4825631164,
+        "median_seconds": 0.479117667,
+        "stdev_seconds": 0.011698076688412246,
+        "min_seconds": 0.470135333,
+        "max_seconds": 0.495482125,
+        "batch": 1
+      }
+    }
+  ],
+  "verification": {
+    "unittest_count": 22,
+    "passed": true,
+    "privacy": {
+      "legacy_public_salt": {
+        "candidate_count": 720,
+        "attempts": 497,
+        "recovered": "690"
+      },
+      "weak_4bit_nonce": {
+        "candidate_count": 160,
+        "attempts": 156,
+        "recovered": {
+          "message": "9",
+          "nonce": 11
+        }
+      },
+      "fresh_256bit_nonce_after_one_opening": {
+        "reuse_opened_nonce_candidates": 10,
+        "reuse_matches": [],
+        "small_nonce_dictionary_candidates": 160,
+        "dictionary_matches": [],
+        "interpretation": "有限猜测实验；256-bit 随机值的隐藏性由文档中的随机预言机论证支持。"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+SHA3 NIST CAVP KATs: 140/140 PASS; lengths=0..4109
+Proof membership/index/count checks: 11 vector sizes PASS
+Duplicate-value position binding: PASS for 4 equal leaves
+Randomized commitment and single-leaf opening boundary: PASS (nonce length=32 bytes)
+FullOpening reveals all messages/nonces; verify_all exact-root check: PASS
+Empty vectors / negative and non-integer indices: rejected
+Commitment/Proof/FullOpening encodings: roundtrip PASS; all truncations and trailing bytes rejected; wrong proof lengths rejected
+Malformed FullOpening inputs: rejected
+Random byte-message fuzz: n=1..40, 40 randomized sets, all valid openings/full openings passed; message, nonce and sibling tampering rejected
+
+Final read-only review: 22 unittest cases PASS in isolated source copy; 140 official vectors present.
+Binding reduction, fixed-set selective-opening ROM assumptions, encoding sizes and raw-sample statistics matched the documentation.
+No existing hash or Merkle implementation calls found in project sources/tests/benchmark.
+Vector-count regression strengthened to require exactly 140 records and expected length set; final-validation.log confirms 22 cases PASS after that change.
