@@ -1,7 +1,8 @@
 """单叶 A/B/C/D 与树级 A'/B'/C'/D'；保存原始 JSON 和 SVG。
 
 PYTHONPATH=src .venv/bin/python -B experiments/distribution.py
---quick 检查连通性；--from-json FILE 重绘；--tree-only 在已有数据上补跑 B'/C'/D'。
+--scale quick 检查连通性；默认 mid；--from-json FILE 重绘；--tree-only 补跑 B'/C'/D'。
+MTC_SHA3_BACKEND=python|c 在进程启动时选定实现。
 固定 PRNG 只用于可复现实验输入，生产 commit 的随机源不作改动。
 """
 import argparse
@@ -14,6 +15,7 @@ import platform
 import random
 import statistics
 import subprocess
+import sys
 import tempfile
 from unittest.mock import patch
 
@@ -23,6 +25,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from merkle_commitment import tree as mt
+from merkle_commitment.sha3 import SHA3_BACKEND, backend_info
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def environment():
     """记录实现身份与运行环境；dirty 明确表示提交号不能单独复现。"""
     return {
-        'backend': 'handwritten-python-sha3',
+        **backend_info(),
         'python': platform.python_version(), 'platform': platform.platform(),
         'timestamp': datetime.now().astimezone().isoformat(),
         'commit': subprocess.check_output(
@@ -40,6 +43,15 @@ def environment():
             ['git', 'status', '--porcelain'], cwd=ROOT, text=True,
         ).strip()),
     }
+
+
+def confirm_python_run(scale, yes):
+    """按已有单块耗时与搜索工作量，在采样前确认超过 90 s 的 Python 任务。"""
+    if SHA3_BACKEND == 'python' and scale != 'quick':
+        print(f'警告：Python/{scale} 分布实验预计超过 90 秒，'
+              'mid 通常需数十分钟；large 仅哈希预算就约 2.5 小时。', file=sys.stderr)
+        if not yes and (not sys.stdin.isatty() or input('继续？输入 y 确认：').strip().lower() != 'y'):
+            raise SystemExit('已取消；非交互运行须显式提供 --yes。')
 
 
 def random_bytes(rng, length):
@@ -74,9 +86,12 @@ def bit_rates(hex_samples):
     return [count / len(hex_samples) for count in totals]
 
 
-def finish(fig, directory, name, preview):
+def finish(fig, directory, name, preview, data):
     """SVG 保留为正式图；可选 PNG 只用于本地视觉检查。"""
-    fig.tight_layout()
+    backend = data.get('backend', 'handwritten-python-sha3')
+    # 有的实验只使用 axes 标题；统一在页脚记录后端，不依赖 suptitle 是否存在。
+    fig.text(0.99, 0.01, backend, ha='right', fontsize=8)
+    fig.tight_layout(rect=(0, 0.035, 1, 1))
     fig.savefig(directory / (name + '.svg'))
     if preview:
         preview.mkdir(parents=True, exist_ok=True)
@@ -106,13 +121,13 @@ def hamming_histogram(ax, samples, label):
 class ExperimentA_LeafCommitAvalanche:
     """实验 A：固定 n=8、i=3，消息和 nonce 均为 32 B，每次只翻转一位。
 
-    #! 默认每组 10,000 对；分别改变 message 或 nonce，位位置均匀采样。
-    #! quick 每组 128 对。C 后端验证后可增至 100,000 对。
+    #! mid 每组 10,000 对；分别改变 message 或 nonce，位位置均匀采样。
+    #! quick 每组 128 对；large 每组 100,000 对，两个后端参数相同。
     XOR 原始记录保存全部输出位；95% 零假设参考带逐位定义，不是同时保证。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """保持其余编码字段相同，隔离输入的单比特改动。"""
-        count = 128 if quick else 10000
+        count = {'quick': 128, 'mid': 10000, 'large': 100000}[scale]
         groups = {}
         for field in ('message', 'nonce'):
             rows = []
@@ -145,19 +160,19 @@ class ExperimentA_LeafCommitAvalanche:
                    title=f'{field}: marginal frequencies')
             ax.legend(fontsize=8)
         fig.suptitle('A | Leaf avalanche diagnostic (not a hiding proof)')
-        finish(fig, directory, 'distribution-A', preview)
+        finish(fig, directory, 'distribution-A', preview, data)
 
 
 class ExperimentB_LowEntropyInputBias:
     """实验 B：同一 n=8、i=3，比较一字节消息 0/1 的输出边际分布。
 
-    #! 默认每类 10,000 个独立采样的 32 B nonce；quick 每类 128。
-    #! C 后端可增至每类 100,000；仍不能估计完整 256 位分布的距离。
+    #! mid 每类 10,000 个独立采样的 32 B nonce；quick 每类 128。
+    #! large 每类 100,000；仍不能估计完整 256 位分布的距离。
     两组摘要一一配对，无样本复用；置信带是近似逐位零假设带。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """保存两组完整摘要，支持重新计算边际差和配对汉明距离。"""
-        count = 128 if quick else 10000
+        count = {'quick': 128, 'mid': 10000, 'large': 100000}[scale]
         groups = {}
         for message in ('0', '1'):
             groups[message] = [
@@ -179,24 +194,26 @@ class ExperimentB_LowEntropyInputBias:
                     title=f'Two independent classes, n={len(left)} each')
         ax.legend(fontsize=8)
         fig.suptitle('B | Leaf primer: low-entropy input classes')
-        finish(fig, directory, 'distribution-B', preview)
+        finish(fig, directory, 'distribution-B', preview, data)
 
 
 class ExperimentC_ReducedNonceSearch:
     """实验 C：真实叶编码不变，仅把 nonce 熵缩成 t 位，实际执行穷举。
 
-    #! t=(4,6,8,10)，每档 20 次；候选消息为数字 0..9。
-    #! quick t=(4,6)，每档 2 次。C 后端可增至 t=14/16、100 次；
+    #! mid t=(4,6,8,10)，每档 20 次；候选消息为数字 0..9。
+    #! quick t=(4,6)，每档 2 次；large t=(4,6,8,10,12,14)，每档 32 次。
     #! 每多一位成本约翻倍，真实 256 位始终不枚举。
     固定 n=8、i=3；消息按单字节数字编码，nonce 字段始终为 32 B。
     目标均匀采样；搜索顺序为先消息后 nonce，nonce 的其余位固定为 0。
     查询数只计搜索，不含一次目标摘要生成；找到的输入须与目标完全一致。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """计数每次真实哈希查询，记录找到的消息及 nonce 以核对恢复。"""
-        trials = 2 if quick else 20
+        trials = {'quick': 2, 'mid': 20, 'large': 32}[scale]
+        bits_values = {'quick': (4, 6), 'mid': (4, 6, 8, 10),
+                       'large': (4, 6, 8, 10, 12, 14)}[scale]
         rows = []
-        for bits in ((4, 6) if quick else (4, 6, 8, 10)):
+        for bits in bits_values:
             for trial in range(trials):
                 target_message = rng.randrange(10)
                 target_nonce = rng.randrange(2**bits)
@@ -228,22 +245,24 @@ class ExperimentC_ReducedNonceSearch:
                     title=f'{data["trials_per_bits"]} independent targets per t')
         ax.legend(fontsize=8)
         fig.suptitle('C | Leaf primer: exhaustive search')
-        finish(fig, directory, 'distribution-C', preview)
+        finish(fig, directory, 'distribution-C', preview, data)
 
 
 class ExperimentD_ProjectedDigestCollision:
     """实验 D：投影为前 b 位后，搜寻不同消息的首次碰撞。
 
-    #! b=(8,12,16,20)，每档 100 次；quick b=(8,12)，每档 5 次。
-    #! C 后端可增至 b=24/28、1,000 次；成本约为 2^(b/2)，内存亦增长。
+    #! mid b=(8,12,16,20)，每档 100 次；quick b=(8,12)，每档 5 次。
+    #! large b=(8,12,16,20,24)，每档 32 次；控制常识演示预算，成本约为 2^(b/2)。
     固定 n=8、i=3；每 trial 固定独立的 32 B nonce。
     消息为递增的 8 B 整数，确保输入从不重复。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """确实计算到碰撞，不从生日公式抽样冒充哈希观测。"""
-        trials = 5 if quick else 100
+        trials = {'quick': 5, 'mid': 100, 'large': 32}[scale]
+        bits_values = {'quick': (8, 12), 'mid': (8, 12, 16, 20),
+                       'large': (8, 12, 16, 20, 24)}[scale]
         rows = []
-        for bits in ((8, 12) if quick else (8, 12, 16, 20)):
+        for bits in bits_values:
             for trial in range(trials):
                 nonce, seen = random_bytes(rng, 32), {}
                 counter = 0
@@ -275,22 +294,24 @@ class ExperimentD_ProjectedDigestCollision:
                ylabel='Queries including the colliding input',
                title=f'D | First collision; {data["trials_per_bits"]} trials per b')
         ax.legend()
-        finish(fig, directory, 'distribution-D', preview)
+        finish(fig, directory, 'distribution-D', preview, data)
 
 
 class ExperimentAPrime_TreeTamperPropagation:
     """实验 A'（原 E）：固定其余叶，分别改一位，沿证明路径重算。
 
-    #! n=(8,32,257,1024)，每规模每类 100 次；每 trial 均匀采样真实位置。
-    #! quick n=(8,32)，每类 4 次。C 后端可到 n=65536、每类 1,000 次。
+    #! mid n=(8,32,257,1024)，每规模每类 100 次；均匀采样真实位置。
+    #! quick n=(8,32)，每类 4 次；large 再加 n=16384/65536，每类 1,000 次。
     消息和 nonce 均为 32 B，翻转位均匀选自 0..255。
     同一规模复用一棵树；这些观测是条件于该树的样本，不冒称独立树总体。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """同时用少量整树重建核对：变化仅落在被改叶的祖先路径。"""
-        trials = 4 if quick else 100
+        trials = {'quick': 4, 'mid': 100, 'large': 1000}[scale]
+        sizes = {'quick': (8, 32), 'mid': (8, 32, 257, 1024),
+                 'large': (8, 32, 257, 1024, 16384, 65536)}[scale]
         groups = []
-        for n in ((8, 32) if quick else (8, 32, 257, 1024)):
+        for n in sizes:
             messages = [random_bytes(rng, 32) for _ in range(n)]
             # 仅实验构造的树采用记录种子的随机值，生产 API 仍为 secrets。
             with patch.object(mt, 'token_bytes', lambda size: random_bytes(rng, size)):
@@ -333,9 +354,14 @@ class ExperimentAPrime_TreeTamperPropagation:
 
     def plot(self, data, directory, preview):
         """层 0 是叶，h 是树根，h+1 是含真实叶数的最终承诺。"""
-        fig, axes = plt.subplots(1, len(data['groups']), figsize=(4 * len(data['groups']), 4),
+        column_count = 3 if len(data['groups']) > 4 else len(data['groups'])
+        row_count = math.ceil(len(data['groups']) / column_count)
+        fig, axes = plt.subplots(row_count, column_count,
+                                 figsize=(4 * column_count, 4 * row_count),
                                  squeeze=False, sharey=True)
-        for ax, group in zip(axes[0], data['groups']):
+        for ax in axes.flat[len(data['groups']):]:
+            ax.set_visible(False)
+        for ax, group in zip(axes.flat, data['groups']):
             for field in ('message', 'nonce'):
                 samples = [r['distances'] for r in group['rows'] if r['field'] == field]
                 columns = list(zip(*samples))
@@ -350,7 +376,7 @@ class ExperimentAPrime_TreeTamperPropagation:
                    xlabel='Level: leaf=0; last=C', ylabel='Changed digest bits')
             ax.legend(fontsize=8)
         fig.suptitle("A' | Path propagation: mean +/- SD (conditional on one tree)")
-        finish(fig, directory, 'distribution-A-prime', preview)
+        finish(fig, directory, 'distribution-A-prime', preview, data)
 
 
 
@@ -403,15 +429,15 @@ def verify_projected_opening(n, bits, projection, opening):
 class ExperimentBPrime_TreePublicViewBias:
     """实验 B'：挑战消息 0/1 经真实树和邻居开封后的公开视图。
 
-    #! full：n=(3,8,9)，每规模每类 1,000 个新 nonce 样本；quick：每类 8。
+    #! mid：n=(3,8,9)，每规模每类 1,000 个新 nonce 样本；quick：每类 8。
+    #! large 每规模每类 10,000；其他叶、目标/邻居位置规则不变。
     #! n=3 时目标/邻居为 0/1；n=8,9 时为 2/3，其他消息固定为 x。
     每对挑战共享其他位置的 nonce，目标 nonce 分别独立采样；
     JSON 保留两类的 C、邻居消息和完整邻居证明，不记录目标私有 nonce。
-    C 后端可将每类增至 10,000，并增加不同的目标位置。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """实际建两棵树并开封邻居，核对证明首个兄弟正是目标叶。"""
-        count, groups = (8 if quick else 1000), []
+        count, groups = {'quick': 8, 'mid': 1000, 'large': 10000}[scale], []
         for n in (3, 8, 9):
             target = 0 if n == 3 else 2
             neighbor = target ^ 1
@@ -459,24 +485,25 @@ class ExperimentBPrime_TreePublicViewBias:
                    ylabel='Frequency(0) - frequency(1)')
             ax.legend(fontsize=8)
         fig.suptitle(f"B' | Public views; {data['groups'][0]['samples_per_class']} samples/class/n")
-        finish(fig, directory, 'distribution-B-prime', preview)
+        finish(fig, directory, 'distribution-B-prime', preview, data)
 
 
 class ExperimentCPrime_TreeTargetRecovery:
     """实验 C'：其他叶均开封后，真实执行走根搜索和直接叶匹配两种恢复。
 
-    #! full：n=(3,8,9)，t=(4,6,8)，每组合 8 个独立目标；quick：t=(4)，2 个。
+    #! mid：n=(3,8,9)，t=(4,6,8)，每组合 8 个独立目标；quick：t=(4)，2 个。
+    #! large：t=(4,6,8,10,12)，每组合 16 个目标，树规模仍为 3/8/9。
     #! 消息为十个单字节数字，目标 nonce 只有低 t 位未知，字段仍为 32 B。
     n=3 时目标为 0，其他规模为 2；每次生成新树和其他叶的完整 256 位 nonce。
     8 个目标是控制 Python 哈希预算的选择；记录全部分布，而非要求均值精确拟合。
-    C 后端可增至每组合 100 个目标、t=10/12，并保留相同的两种攻击入口。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """攻击者的路径由其他叶的合法证明导出，绝不读取目标的私有 nonce。"""
-        trials, rows = (2 if quick else 8), []
+        trials, rows = {'quick': 2, 'mid': 8, 'large': 16}[scale], []
+        bits_values = {'quick': (4,), 'mid': (4, 6, 8), 'large': (4, 6, 8, 10, 12)}[scale]
         for n in (3, 8, 9):
             index = 0 if n == 3 else 2
-            for bits in ((4,) if quick else (4, 6, 8)):
+            for bits in bits_values:
                 for trial in range(trials):
                     target_message, target_nonce = rng.randrange(10), rng.randrange(2**bits)
                     messages = [b'x'] * n
@@ -558,24 +585,26 @@ class ExperimentCPrime_TreeTargetRecovery:
         axes[1].set(ylabel='Root search / direct-leaf search', title='Tree work, not extra nonce entropy')
         axes[1].legend(fontsize=8)
         fig.suptitle(f"C' | All other leaves opened; {data['trials_per_combination']} targets/n/t")
-        finish(fig, directory, 'distribution-C-prime', preview)
+        finish(fig, directory, 'distribution-C-prime', preview, data)
 
 
 class ExperimentDPrime_TreeConflictingOpenings:
     """实验 D'：只缩短公开 C，实际提交同一承诺接受的两份冲突完整开封。
 
-    #! full：n=(3,8,9)，b=(8,12,16)，每组合 12 次；quick：b=(8)，2 次。
+    #! mid：n=(3,8,9)，b=(8,12,16)，每组合 12 次；quick：b=(8)，2 次。
+    #! large：b=(8,12,16,20)，每组合 32 次，树规模仍为 3/8/9。
     #! 目标位置为 0/2；候选为“我欠你{整数}块”，其他消息与所有 nonce 固定。
     所有内部哈希仍为 256 位，仅教学验证器对最终 C 比较最高 b 位。
     保存两个完整 wire 开封；实际检验弱化规则均接受，正式完整规则拒绝第二份。
-    C 后端可增至每组合 100 次、b=20/24，搜索约按 2^(b/2) 增长。
+    搜索约按 2^(b/2) 增长；不因预算截断困难样本。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """搜索只重算变化路径；碰撞见证使用两次整树重建验收。"""
-        trials, rows = (2 if quick else 12), []
+        trials, rows = {'quick': 2, 'mid': 12, 'large': 32}[scale], []
+        bits_values = {'quick': (8,), 'mid': (8, 12, 16), 'large': (8, 12, 16, 20)}[scale]
         for n in (3, 8, 9):
             index = 0 if n == 3 else 2
-            for bits in ((8,) if quick else (8, 12, 16)):
+            for bits in bits_values:
                 for trial in range(trials):
                     messages = [b'x'] * n
                     nonces = [random_bytes(rng, 32) for _ in range(n)]
@@ -642,21 +671,32 @@ class ExperimentDPrime_TreeConflictingOpenings:
         axes[1].set(yscale='log', xlabel='Public commitment bits b', ylabel='Search digest calls')
         axes[1].legend(fontsize=8)
         fig.suptitle(f"D' | Two accepted openings per collision; {data['trials_per_combination']} trials/n/b")
-        finish(fig, directory, 'distribution-D-prime', preview)
+        finish(fig, directory, 'distribution-D-prime', preview, data)
 
 
 def main():
     """按类逐项采样并落盘；重画时只读 JSON，不重新随机采样。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--quick', action='store_true')
+    parser.add_argument('--scale', choices=('quick', 'mid', 'large'), default='mid')
+    parser.add_argument('--yes', action='store_true', help='Confirm a long Python run without prompting.')
     parser.add_argument('--seed', type=int, default=20261012)
-    parser.add_argument('--output-dir', type=Path, default=ROOT / 'results')
-    parser.add_argument('--figure-dir', type=Path, default=ROOT / 'docs/assets/experiments')
+    parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--figure-dir', type=Path)
     parser.add_argument('--preview-dir', type=Path)
     parser.add_argument('--from-json', type=Path)
     parser.add_argument('--tree-only', action='store_true',
                         help="Reuse existing JSON; sample only B'/C'/D'.")
     args = parser.parse_args()
+    saved = json.loads(args.from_json.read_text()) if args.from_json else None
+    # 运行产物按后端/规模分组；重绘沿用保存的数据身份，不自动修改 docs 快照。
+    is_c = saved['environment']['backend'] == 'handwritten-c-sha3' if saved is not None else SHA3_BACKEND == 'c'
+    scale = saved.get('scale', saved.get('mode', args.scale)) if saved is not None else args.scale
+    scale = 'mid' if scale == 'full' else scale  # 历史记录的 full 对应现有 mid。
+    run_dir = ROOT / 'all-outputs' / (('c' if is_c else 'python') + '-' + scale)
+    args.output_dir = args.output_dir or run_dir / 'jsons'
+    args.figure_dir = args.figure_dir or run_dir / 'svgs'
+    if not args.from_json:
+        confirm_python_run(args.scale, args.yes)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.figure_dir.mkdir(parents=True, exist_ok=True)
     experiments = [
@@ -667,23 +707,28 @@ def main():
         ExperimentDPrime_TreeConflictingOpenings(),
     ]
     if args.from_json:
-        data = json.loads(args.from_json.read_text())
+        data = saved
     else:
         if args.tree_only:
             data = json.loads((args.output_dir / 'distribution.json').read_text())
+            # 旧 JSON 只有整体环境：把其身份补到保留条目，不能误标成新后端。
+            for entry in data['experiments'].values():
+                entry.setdefault('backend', data['environment']['backend'])
+                old_scale = entry.get('mode', data.get('scale', data.get('mode', 'full')))
+                entry.setdefault('scale', 'mid' if old_scale == 'full' else old_scale)
             data['tree_extension_environment'] = environment()
         else:
             data = {'environment': environment(), 'seed': args.seed,
-                    'mode': 'quick' if args.quick else 'full', 'experiments': {}}
+                    'scale': args.scale, 'experiments': {}}
         data['complete'] = False
         for number, experiment in enumerate(experiments):
             if args.tree_only and number < 5:
                 continue
             name = type(experiment).__name__
             seed = data['seed'] + number
-            result = experiment.run(random.Random(seed), args.quick)
+            result = experiment.run(random.Random(seed), args.scale)
             data['experiments'][name] = {'seed': seed,
-                                        'mode': 'quick' if args.quick else 'full', **result}
+                                        **backend_info(), 'scale': args.scale, **result}
             data['complete'] = number == len(experiments) - 1
             (args.output_dir / 'distribution.json').write_text(
                 json.dumps(data, ensure_ascii=False, indent=2) + '\n'
@@ -694,8 +739,7 @@ def main():
             experiment.plot(data['experiments'][name], args.figure_dir, args.preview_dir)
 
 
-# TODO(C-BACKEND): 140 个 NIST 向量和协议输入逐字节对照通过后，
-# 才在实验局部替换 mt.H；记录真实 backend，扩大各类 #! 参数，不换正式随机源。
+# 后端在 sha3.py 导入时绑定；每条实验结果单独记录后端与规模，不换正式随机源。
 # Batch proof 接口已实现；新的批量分布实验按实际研究需求另加。
 
 if __name__ == '__main__':

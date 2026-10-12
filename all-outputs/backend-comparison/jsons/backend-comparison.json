@@ -1,0 +1,323 @@
+{
+  "backends": {
+    "python": {
+      "environment": {
+        "backend": "handwritten-python-sha3",
+        "python": "3.9.6",
+        "platform": "macOS-26.6.2-arm64-arm-64bit",
+        "timestamp": "2026-10-13T02:04:13.308535+08:00",
+        "commit": "acc5dcbd1004aaa1b992a149f4870c7fb35ac5ed",
+        "dirty": true
+      },
+      "commitment_hex": "0f120c06b0e16a7acbb949328c88da64a228ee9e8d2cf4057147d63058e0a273",
+      "parameters": {
+        "n": 1024,
+        "message_bytes": 32,
+        "k": 64,
+        "indices": [
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147,
+          148,
+          149,
+          150,
+          151,
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          167,
+          168,
+          169,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184,
+          185,
+          186,
+          187,
+          188,
+          189,
+          190,
+          191
+        ],
+        "groups": 5,
+        "calibration_target_seconds": 0.2
+      },
+      "work": {
+        "commit": {
+          "input_length_counts": {
+            "89": 1024,
+            "65": 1023,
+            "41": 1
+          },
+          "hash_calls": 2048,
+          "permutations": 2048
+        },
+        "open_many": {
+          "input_length_counts": {},
+          "hash_calls": 0,
+          "permutations": 0
+        },
+        "verify_many": {
+          "input_length_counts": {
+            "89": 64,
+            "65": 67,
+            "41": 1
+          },
+          "hash_calls": 132,
+          "permutations": 132
+        }
+      },
+      "timings": {
+        "commit": {
+          "samples_seconds": [
+            1.1982785,
+            1.764137333,
+            1.964980208,
+            1.345862042,
+            1.197187291
+          ],
+          "batch": 1,
+          "groups": 5,
+          "median_seconds": 1.345862042,
+          "q1_seconds": 1.1982785,
+          "q3_seconds": 1.764137333,
+          "calibration_target_seconds": 0.2
+        },
+        "open_many": {
+          "samples_seconds": [
+            6.02217398540146e-05,
+            5.9805948905109484e-05,
+            5.997964700729927e-05,
+            6.019217751824818e-05,
+            5.977141109489051e-05
+          ],
+          "batch": 3425,
+          "groups": 5,
+          "median_seconds": 5.997964700729927e-05,
+          "q1_seconds": 5.9805948905109484e-05,
+          "q3_seconds": 6.019217751824818e-05,
+          "calibration_target_seconds": 0.2
+        },
+        "verify_many": {
+          "samples_seconds": [
+            0.07707093066666666,
+            0.07691020833333333,
+            0.07685968033333333,
+            0.08987341666666666,
+            0.07647797233333332
+          ],
+          "batch": 3,
+          "groups": 5,
+          "median_seconds": 0.07691020833333333,
+          "q1_seconds": 0.07685968033333333,
+          "q3_seconds": 0.07707093066666666,
+          "calibration_target_seconds": 0.2
+        }
+      }
+    },
+    "c": {
+      "environment": {
+        "backend": "handwritten-c-sha3",
+        "compiler": "Apple LLVM 21.0.0 (clang-2100.1.1.101)",
+        "compile_flags": "-Wno-unused-result -Wsign-compare -Wunreachable-code -fno-common -dynamic -DNDEBUG -g -fwrapv -O3 -Wall -iwithsysroot/System/Library/Frameworks/System.framework/PrivateHeaders -iwithsysroot/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Headers -arch arm64 -arch x86_64 -Werror=implicit-function-declaration -Wno-error=unreachable-code -Wno-error=unused-but-set-variable -Wno-error=cast-function-type-mismatch -Wno-unknown-warning-option -std=c11",
+        "python": "3.9.6",
+        "platform": "macOS-26.6.2-arm64-arm-64bit",
+        "timestamp": "2026-10-13T02:04:26.792817+08:00",
+        "commit": "acc5dcbd1004aaa1b992a149f4870c7fb35ac5ed",
+        "dirty": true
+      },
+      "commitment_hex": "0f120c06b0e16a7acbb949328c88da64a228ee9e8d2cf4057147d63058e0a273",
+      "parameters": {
+        "n": 1024,
+        "message_bytes": 32,
+        "k": 64,
+        "indices": [
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147,
+          148,
+          149,
+          150,
+          151,
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          167,
+          168,
+          169,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184,
+          185,
+          186,
+          187,
+          188,
+          189,
+          190,
+          191
+        ],
+        "groups": 5,
+        "calibration_target_seconds": 0.2
+      },
+      "work": {
+        "commit": {
+          "input_length_counts": {
+            "89": 1024,
+            "65": 1023,
+            "41": 1
+          },
+          "hash_calls": 2048,
+          "permutations": 2048
+        },
+        "open_many": {
+          "input_length_counts": {},
+          "hash_calls": 0,
+          "permutations": 0
+        },
+        "verify_many": {
+          "input_length_counts": {
+            "89": 64,
+            "65": 67,
+            "41": 1
+          },
+          "hash_calls": 132,
+          "permutations": 132
+        }
+      },
+      "timings": {
+        "commit": {
+          "samples_seconds": [
+            0.004832675395348837,
+            0.005074943790697674,
+            0.004924389534883721,
+            0.00504437111627907,
+            0.004879681186046512
+          ],
+          "batch": 43,
+          "groups": 5,
+          "median_seconds": 0.004924389534883721,
+          "q1_seconds": 0.004879681186046512,
+          "q3_seconds": 0.00504437111627907,
+          "calibration_target_seconds": 0.2
+        },
+        "open_many": {
+          "samples_seconds": [
+            6.221506648777579e-05,
+            6.0942108825283244e-05,
+            6.206481067382231e-05,
+            6.100890727489565e-05,
+            6.193953756708407e-05
+          ],
+          "batch": 3354,
+          "groups": 5,
+          "median_seconds": 6.193953756708407e-05,
+          "q1_seconds": 6.100890727489565e-05,
+          "q3_seconds": 6.206481067382231e-05,
+          "calibration_target_seconds": 0.2
+        },
+        "verify_many": {
+          "samples_seconds": [
+            0.00016481376475477972,
+            0.00016318446965918538,
+            0.0001625659467996675,
+            0.0001621800365752286,
+            0.00016251887614297588
+          ],
+          "batch": 1203,
+          "groups": 5,
+          "median_seconds": 0.0001625659467996675,
+          "q1_seconds": 0.00016251887614297588,
+          "q3_seconds": 0.00016318446965918538,
+          "calibration_target_seconds": 0.2
+        }
+      }
+    }
+  },
+  "python_over_c": {
+    "commit": 273.3053574389459,
+    "open_many": 0.968358004648289,
+    "verify_many": 473.10159259928497
+  }
+}

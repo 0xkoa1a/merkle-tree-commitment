@@ -7,11 +7,13 @@ __pycache__/
 .venv/
 
 *.egg-info/
+*.so
 
 build/
 dist/
 
 results-new/
-results/distribution.json
-results/batchproof-performance.json
+all-outputs/*/jsons/*.json
+!all-outputs/python-mid/jsons/performance.json
+!all-outputs/backend-comparison/jsons/backend-comparison.json
 backups/

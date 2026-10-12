@@ -1,12 +1,14 @@
 """实现正确性基线：NIST 固定答案、独立树规格、代表性篡改与字节往返。"""
 
 import json
+import hashlib
+import random
 from pathlib import Path
 from dataclasses import replace
 import unittest
 
 from merkle_commitment import tree as mt
-from merkle_commitment.sha3 import sha3_256, sha3_256_digest
+from merkle_commitment.sha3 import sha3_256, sha3_256_digest, sha3_256_digest_python
 
 
 def _reference_root(messages, nonces):
@@ -145,6 +147,46 @@ class CommitmentTests(unittest.TestCase):
 
 
 class HashTests(unittest.TestCase):
+    def test_c_python_and_hashlib_agree(self):
+        """C、参考 Python 和标准库逐字节一致，覆盖填充、多块与类型契约。
+
+        九个指定长度包含 135 B 的合并后缀及整 rate 块的额外填充；
+        固定种子的随机二进制含 NUL，不只测试文本。协议样例分别代表
+        叶、父、占位及最终封装的输入；hashlib 仅作 oracle，不参与实现。
+        bytes 子类和 message 关键字须可用，其他 buffer/文本须与原实现
+        一样报 TypeError。C 未构建时此项直接失败，不静默跳过。
+        """
+        from merkle_commitment._sha3_c import digest
+
+        rng = random.Random(20261013)
+        lengths = (0, 1, 134, 135, 136, 137, 271, 272, 273)
+        messages = [rng.getrandbits(8 * size).to_bytes(size, 'big') for size in lengths]
+        messages += [rng.getrandbits(8 * size).to_bytes(size, 'big')
+                     for size in (rng.randrange(1025) for _ in range(32))]
+        messages += [b'\x00a\x00b\x00', b'\x00' * 4096]
+        u64 = lambda value: value.to_bytes(8, 'big')
+        messages += [b'\x00' + u64(8) + u64(3) + u64(3) + b'a\x00b' + bytes(32),
+                     b'\x01' + bytes(range(64)),
+                     b'\x02' + u64(9) + u64(15),
+                     b'\x03' + u64(8) + bytes(32)]
+        for number, message in enumerate(messages):
+            with self.subTest(case=number, length=len(message)):
+                expected = hashlib.sha3_256(message).digest()
+                self.assertEqual(sha3_256_digest_python(message), expected)
+                self.assertEqual(digest(message), expected)
+                self.assertEqual(sha3_256_digest(message), expected)
+
+        class ByteMessage(bytes):
+            """现有 isinstance(bytes) 允许的子类，C 的类型检查应保持一致。"""
+
+        for function in (digest, sha3_256_digest_python, sha3_256_digest):
+            self.assertEqual(function(message=ByteMessage(b'abc')),
+                             hashlib.sha3_256(b'abc').digest())
+            for invalid in ('abc', bytearray(b'abc'), memoryview(b'abc'), None, 3):
+                with self.subTest(function=function.__name__, input_type=type(invalid).__name__):
+                    with self.assertRaisesRegex(TypeError, 'message must be bytes'):
+                        function(invalid)
+
     def test_nist_known_answers(self):
         """用 140 条 NIST CAVP 向量校验手写 SHA3-256。
 

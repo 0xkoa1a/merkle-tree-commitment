@@ -1,7 +1,8 @@
 """性能实验 P1–P4：真实计时、独立工作量观测、JSON 和 SVG。
 
 PYTHONPATH=src .venv/bin/python -B experiments/performance.py
---quick 仅检查连通性；--from-json FILE 只重绘。计时期间不并行运行别的实验。
+--scale quick 仅检查连通性；默认 mid；--from-json FILE 只重绘。
+MTC_SHA3_BACKEND=python|c 在进程启动时选定实现。计时期间不并行运行别的实验。
 """
 import argparse
 from datetime import datetime
@@ -14,6 +15,7 @@ import platform
 import random
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 from unittest.mock import patch
@@ -24,15 +26,15 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from merkle_commitment import tree as mt
-from merkle_commitment.sha3 import RATE_BYTES
+from merkle_commitment.sha3 import RATE_BYTES, SHA3_BACKEND, backend_info
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def environment():
-    """同时记录后端与环境，避免把未来 C 结果混入 Python 曲线。"""
+    """记录实际后端与环境，避免把不同实现的结果混在同一曲线。"""
     return {
-        'backend': 'handwritten-python-sha3',
+        **backend_info(),
         'python': platform.python_version(), 'platform': platform.platform(),
         'timestamp': datetime.now().astimezone().isoformat(),
         'commit': subprocess.check_output(
@@ -44,10 +46,19 @@ def environment():
     }
 
 
+def confirm_python_run(scale, yes):
+    """正式 Python 采样超过 90 s；在准备输入和预热前要求明确确认。"""
+    if SHA3_BACKEND == 'python' and scale != 'quick':
+        print(f'警告：Python/{scale} 性能采样预计超过 90 秒，'
+              'mid 通常需数十分钟，large 可能需数小时。', file=sys.stderr)
+        if not yes and (not sys.stdin.isatty() or input('继续？输入 y 确认：').strip().lower() != 'y'):
+            raise SystemExit('已取消；非交互运行须显式提供 --yes。')
+
+
 def measure(operation, quick, groups=9):
     """预热一次；校准 batch；保存逐组每调用秒数、中位数及四分位数。
 
-    #! full 默认 9 组，P4 大 k 显式指定 3 组，目标每组 >=0.2s；
+    #! mid/large 默认 9 组，P4 大 k 显式指定 3 组，目标每组 >=0.2s；
     #! quick：3 组，目标 >=0.01s。
     batch 由 pilot 决定且固定；正式组可能因机器波动略短于目标。
     保留函数调用、循环及结果释放成本，不扣减空循环制造负时间。
@@ -149,15 +160,18 @@ def save(fig, directory, name, preview):
 class ExperimentP1_RawSHA3BlockCost:
     """性能实验 P1：绕过树，隔离 SHA3 输入长度及 rate 边界。
 
-    #! full：0/32/64/4096 B、130..142 B、266..278 B；quick：135/136/273 B。
-    #! C 后端可加入 64 KiB/1 MiB；短调用需重新校准 batch，不沿用 Python batch。
+    #! mid：0/32/64/4096 B、130..142 B、266..278 B；quick：135/136/273 B。
+    #! large：再加 64 KiB/1 MiB；两个后端参数一致，分别校准 batch。
     输入 bytes 在计时前构造；包括填充、吸收、置换、输出，不含 hex 转换。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """对同一长度的全 a 字节串反复计算，采集完整 digest 调用成本。"""
+        quick = scale == 'quick'
         lengths = [135, 136, 273] if quick else sorted(
             {0, 32, 64, 4096, *range(130, 143), *range(266, 279)}
         )
+        if scale == 'large':
+            lengths += [65536, 1048576]
         rows = []
         for length in lengths:
             message = b'a' * length
@@ -170,7 +184,8 @@ class ExperimentP1_RawSHA3BlockCost:
     def plot(self, data, directory, preview):
         """局部窗口展示跳跃，全局 panel 展示重复吸收的增长。"""
         fig, axes = plt.subplots(1, 3, figsize=(13, 4))
-        for ax, interval in zip(axes, ((0, 4096), (130, 142), (266, 278))):
+        maximum = max(row['message_bytes'] for row in data['rows'])
+        for ax, interval in zip(axes, ((0, maximum), (130, 142), (266, 278))):
             rows = [r for r in data['rows'] if interval[0] <= r['message_bytes'] <= interval[1]]
             curve(ax, rows, 'message_bytes', 'hash', 1000)
             if interval[0]:
@@ -180,21 +195,25 @@ class ExperimentP1_RawSHA3BlockCost:
                 ax.set_xscale('symlog', linthresh=32)
             ax.set(xlabel='Raw SHA3 input bytes', ylabel='Time (ms)')
             ax.legend(fontsize=8)
-        fig.suptitle('P1 | SHA3-256: median and IQR; Python')
+        fig.suptitle('P1 | SHA3-256: median and IQR; ' + data.get('backend', 'handwritten-python-sha3'))
         save(fig, directory, 'performance-P1', preview)
 
 
 class ExperimentP2_TreeSizeCost:
     """性能实验 P2：32 B 消息，二次幂前/后和完整树对照。
 
-    #! full：n=1 及 2^d-1/2^d/2^d+1，d=(3,5,7,8,9,10,11,12)，最大 4097。
-    #! quick：n=(1,8,9)。C 后端验收后可把 d 扩至 16/18，仍保留重叠点。
+    #! mid：n=1 及 2^d-1/2^d/2^d+1，d=(3,5,7,8,9,10,11,12)，最大 4097。
+    #! quick：n=(1,8,9)；large 再加 d=13/14/15/16，最大 n=65537、N=131072。
     每棵树只制备至多 16 个位置以免样本准备变成全量开封测试。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """各计时操作分开，额外计数独立于计时；open 的哈希数必须为零。"""
+        quick = scale == 'quick'
+        depths = (3, 5, 7, 8, 9, 10, 11, 12)
+        if scale == 'large':
+            depths += (13, 14, 15, 16)
         sizes = [1, 8, 9] if quick else sorted(
-            {1, *(2**d + offset for d in (3, 5, 7, 8, 9, 10, 11, 12)
+            {1, *(2**d + offset for d in depths
                   for offset in (-1, 0, 1))}
         )
         rows = []
@@ -247,23 +266,26 @@ class ExperimentP2_TreeSizeCost:
             ax.set_xlabel('Real leaves n (boundary pairs 2^d / 2^d+1)')
             ax.legend(fontsize=8)
             ax.grid(alpha=0.2)
-        fig.suptitle('P2 | Tree size: object APIs, median and IQR; Python')
+        fig.suptitle('P2 | Tree size: object APIs, median and IQR; ' + data.get('backend', 'handwritten-python-sha3'))
         save(fig, directory, 'performance-P2', preview)
 
 
 class ExperimentP3_MessageLengthCost:
     """性能实验 P3：n=N=32，消息长度影响建树、开封和单项验证的程度。
 
-    #! full：0/16/32/64/128/256/512/1024/4096 B，70..86、206..222 B。
-    #! quick：78/79/214/215 B；C 后端可到 1 MiB，计时与存储预算仍需报告。
+    #! mid：0/16/32/64/128/256/512/1024/4096 B，70..86、206..222 B。
+    #! quick：78/79/214/215 B；large 再加 64 KiB/1 MiB，n 仍为 32。
     固定树形、同长 x 消息；57 B 叶编码开销使额外块出现于 79/215 B。
     """
-    def run(self, rng, quick):
+    def run(self, rng, scale):
         """open 返回已有消息引用，作为无叶哈希的控制操作。"""
+        quick = scale == 'quick'
         lengths = [78, 79, 214, 215] if quick else sorted(
             {0, 16, 32, 64, 128, 256, 512, 1024, 4096,
              *range(70, 87), *range(206, 223)}
         )
+        if scale == 'large':
+            lengths += [65536, 1048576]
         rows = []
         for length in lengths:
             messages = [b'x' * length] * 32
@@ -284,7 +306,8 @@ class ExperimentP3_MessageLengthCost:
     def plot(self, data, directory, preview):
         """全局与两个局部窗口各一列；每行独立单位显示三种操作。"""
         fig, axes = plt.subplots(3, 3, figsize=(13, 10))
-        for col, (lo, hi) in enumerate(((0, 4096), (70, 86), (206, 222))):
+        maximum = max(row['message_bytes'] for row in data['rows'])
+        for col, (lo, hi) in enumerate(((0, maximum), (70, 86), (206, 222))):
             rows = [r for r in data['rows'] if lo <= r['message_bytes'] <= hi]
             for row, (name, scale, unit) in enumerate(
                     (('commit', 1000, 'ms'), ('open', 1e6, 'us'), ('verify', 1000, 'ms'))):
@@ -297,7 +320,7 @@ class ExperimentP3_MessageLengthCost:
                 ax.set(xlabel='Message bytes (leaf input = 57 + message)',
                        ylabel=f'{name} ({unit})')
                 ax.grid(alpha=0.2)
-        fig.suptitle('P3 | Message length, n=32: median and IQR; Python')
+        fig.suptitle('P3 | Message length, n=32: median and IQR; ' + data.get('backend', 'handwritten-python-sha3'))
         save(fig, directory, 'performance-P3', preview)
 
 
@@ -345,21 +368,23 @@ def _count_parent_merges(operation):
 class ExperimentP4_BatchproofSharingCost:
     """P4：同一组位置的独立/批量证明大小、两个操作次数和耗时比较。
 
-    #! full：N=4096，k=2^0..2^12；连续/随机各 300 个结构样本，分散 1 个。
-    #! 默认计时 k=(1,8,64,256)；--large-timing 再加 512/1024/4096。
+    #! mid：N=4096，k=2^0..2^12；连续/随机各 300 个结构样本，分散 1 个。
+    #! mid 计时 k=(1,8,64,256)。large：N=65536，k=2^0..2^16，各 32 个结构样本；
+    #! large 计时 k=(1,8,64,256,1024,4096,16384,65536)，共 1041 个结构记录。
     #! quick：N=64，k=(1,8,16,64)，每类三个结构样本，计时到 16。
     #! 32 B 消息；生成不含建树/编码，验证使用提前准备的对象。
     完整端点只做一次实际计数；三类位置在 k=N 时共享该唯一端点。
-    C 后端验收后可扩大 N，保持两个操作指标和 Python 重叠点。
+    两个后端使用相同规模；C 只加速哈希，不加速结构采样，所以 large 控制样本数。
     """
-    def run(self, rng, quick, large_timing=False):
+    def run(self, rng, scale):
         """先廉价采集结构分布，再对中位结构成对计时并执行真实计数。"""
-        n = 64 if quick else 4096
-        sizes = [1, 8, 16, 64] if quick else [2**power for power in range(13)]
+        quick = scale == 'quick'
+        n = {'quick': 64, 'mid': 4096, 'large': 65536}[scale]
+        sizes = [1, 8, 16, 64] if quick else [2**power for power in range(n.bit_length())]
         timing_sizes = {1, 8, 16} if quick else {1, 8, 64, 256}
-        if large_timing and not quick:
-            timing_sizes.update((512, 1024, 4096))
-        trials, depth = (3 if quick else 300), (n - 1).bit_length()
+        if scale == 'large':
+            timing_sizes.update((1024, 4096, 16384, 65536))
+        trials, depth = {'quick': 3, 'mid': 300, 'large': 32}[scale], (n - 1).bit_length()
         messages = [i.to_bytes(8, 'big') + b'x' * 24 for i in range(n)]
         commitment, tree = mt.commit(messages)
         topology_rows, timing_rows, count_rows = [], [], []
@@ -453,12 +478,13 @@ class ExperimentP4_BatchproofSharingCost:
         return {
             'parameters': {'n': n, 'message_bytes': 32, 'sizes': sizes,
                            'structure_trials': trials, 'timing_sizes': sorted(timing_sizes),
-                           'large_timing': large_timing},
+                           'scale': scale},
             'topology_rows': topology_rows, 'timing_rows': timing_rows, 'count_rows': count_rows,
         }
 
     def plot(self, data, directory, preview):
         """结构分布给中位数/IQR，计数实测加点，时间只画实际采样的 k。"""
+        backend = data.get('backend', data.get('environment', {}).get('backend', 'handwritten-python-sha3'))
         topology = data['topology_rows']
         sizes = sorted({row['k'] for row in topology})
         depth = (data['parameters']['n'] - 1).bit_length()
@@ -492,7 +518,7 @@ class ExperimentP4_BatchproofSharingCost:
         for ax, label in zip(axes, ('Total proof bytes', 'Proof bytes / position', 'Saving (%)')):
             ax.set_ylabel(label)
             ax.legend(fontsize=8)
-        fig.suptitle(f"P4 | Batch proof size; n={data['parameters']['n']}; messages excluded")
+        fig.suptitle(f"P4 | Batch proof size; n={data['parameters']['n']}; messages excluded; {backend}")
         save(fig, directory, 'performance-P4-size', preview)
 
         fig, axes = plt.subplots(1, 2, figsize=(12, 4))
@@ -510,13 +536,15 @@ class ExperimentP4_BatchproofSharingCost:
         axes[1].set_ylabel('Parent merges (verification)')
         for ax in axes:
             ax.legend(fontsize=8)
-        fig.suptitle('P4 | Two algorithm operations; x = measured counts; merge curves = predicted')
+        fig.suptitle(f'P4 | Two algorithm operations; x = measured counts; merge curves = predicted; {backend}')
         save(fig, directory, 'performance-P4-work', preview)
 
         fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        # large 跨多个数量级：使用毫秒及对数纵轴，小 k 的额外接口成本也可读。
+        large = data['parameters'].get('scale') == 'large'
         for pattern, color in colors.items():
             rows = [r for r in data['timing_rows'] if r['distribution'] in (pattern, 'all')]
-            for ax, stage, scale in zip(axes, ('open', 'verify'), (1e6, 1000)):
+            for ax, stage, scale in zip(axes, ('open', 'verify'), (1000 if large else 1e6, 1000)):
                 # 长虚线加空心方块与实线加实心圆同时区分两种方案；图例也留足线段长度。
                 for variant, line, marker in (
                     ('single', (0, (6, 3)), 's'),
@@ -532,56 +560,74 @@ class ExperimentP4_BatchproofSharingCost:
                                     [r[name]['q3_seconds'] * scale for r in rows],
                                     color=color, alpha=0.08)
                 ax.set_xscale('log', base=2)
+                if large:
+                    ax.set_yscale('log')
                 ax.set_xlabel('Opened positions k (timed points only)')
                 ax.grid(alpha=0.2)
-        axes[0].set_ylabel('Open time (microseconds)')
+        axes[0].set_ylabel('Open time (ms)' if large else 'Open time (microseconds)')
         axes[1].set_ylabel('Verify time (ms)')
         for ax in axes:
             ax.legend(fontsize=7, handlelength=4)
-        fig.suptitle('P4 | Paired object APIs: median and IQR; typical topology')
+        fig.suptitle(f'P4 | Paired object APIs: median and IQR; typical topology; {backend}')
         save(fig, directory, 'performance-P4-time', preview)
+
+
+def run_p4(args, saved=None):
+    """运行或重绘 P4，使用独立结果文件，不覆盖 P1–P3 的数据。"""
+    experiment = ExperimentP4_BatchproofSharingCost()
+    if args.from_json:
+        data = saved
+    else:
+        data = {'environment': environment(), 'seed': args.seed,
+                **backend_info(), 'scale': args.scale, 'complete': False,
+                **experiment.run(random.Random(args.seed), args.scale)}
+        data['complete'] = True
+        (args.output_dir / 'batchproof-performance.json').write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + '\n'
+        )
+    experiment.plot(data, args.figure_dir, args.preview_dir)
 
 
 def main():
     """顺序运行，完整参数和每组样本写入 JSON；重绘无需重新计时。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--quick', action='store_true')
+    parser.add_argument('--scale', choices=('quick', 'mid', 'large'), default='mid')
+    parser.add_argument('--yes', action='store_true', help='Confirm a long Python run without prompting.')
     parser.add_argument('--seed', type=int, default=20261012)
-    parser.add_argument('--output-dir', type=Path, default=ROOT / 'results')
-    parser.add_argument('--figure-dir', type=Path, default=ROOT / 'docs/assets/experiments')
+    parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--figure-dir', type=Path)
     parser.add_argument('--preview-dir', type=Path)
     parser.add_argument('--from-json', type=Path)
     parser.add_argument('--batchproof-only', action='store_true')
-    parser.add_argument('--large-timing', action='store_true')
     args = parser.parse_args()
+    saved = json.loads(args.from_json.read_text()) if args.from_json else None
+    # 运行产物按后端/规模分组；重绘沿用保存的数据身份，不自动修改 docs 快照。
+    is_c = saved['environment']['backend'] == 'handwritten-c-sha3' if saved is not None else SHA3_BACKEND == 'c'
+    scale = saved.get('scale', saved.get('mode', args.scale)) if saved is not None else args.scale
+    scale = 'mid' if scale == 'full' else scale  # 历史记录的 full 对应现有 mid。
+    run_dir = ROOT / 'all-outputs' / (('c' if is_c else 'python') + '-' + scale)
+    args.output_dir = args.output_dir or run_dir / 'jsons'
+    args.figure_dir = args.figure_dir or run_dir / 'svgs'
+    if not args.from_json:
+        confirm_python_run(args.scale, args.yes)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.figure_dir.mkdir(parents=True, exist_ok=True)
     if args.batchproof_only:
-        experiment = ExperimentP4_BatchproofSharingCost()
-        if args.from_json:
-            data = json.loads(args.from_json.read_text())
-        else:
-            data = {'environment': environment(), 'seed': args.seed,
-                    'mode': 'quick' if args.quick else 'full', 'complete': False,
-                    **experiment.run(random.Random(args.seed), args.quick, args.large_timing)}
-            data['complete'] = True
-            (args.output_dir / 'batchproof-performance.json').write_text(
-                json.dumps(data, ensure_ascii=False, indent=2) + '\n'
-            )
-        experiment.plot(data, args.figure_dir, args.preview_dir)
+        run_p4(args, saved)
         return
     experiments = [ExperimentP1_RawSHA3BlockCost(), ExperimentP2_TreeSizeCost(),
                    ExperimentP3_MessageLengthCost()]
     if args.from_json:
-        data = json.loads(args.from_json.read_text())
+        data = saved
     else:
         data = {'environment': environment(), 'seed': args.seed,
-                'mode': 'quick' if args.quick else 'full', 'complete': False,
+                'scale': args.scale, 'complete': False,
                 'timing': 'warmup; adaptive batch; median/IQR; seconds per call',
                 'experiments': {}}
         for number, experiment in enumerate(experiments):
             name, seed = type(experiment).__name__, args.seed + number
-            data['experiments'][name] = {'seed': seed, **experiment.run(random.Random(seed), args.quick)}
+            data['experiments'][name] = {'seed': seed, **backend_info(), 'scale': args.scale,
+                                        **experiment.run(random.Random(seed), args.scale)}
             data['complete'] = number == len(experiments) - 1
             (args.output_dir / 'performance.json').write_text(
                 json.dumps(data, ensure_ascii=False, indent=2) + '\n'
@@ -589,13 +635,13 @@ def main():
     for experiment in experiments:
         experiment.plot(data['experiments'][type(experiment).__name__],
                         args.figure_dir, args.preview_dir)
+    # 重绘只处理指定的 JSON；默认采样则继续运行 P4，并另存结果。
+    if not args.from_json:
+        run_p4(args)
 
 
-# TODO(C-BACKEND): 自写 C 的完整 digest 通过 NIST/协议对照后，局部替换 mt.H；
-# 保留 Python/C 重叠点，单独记录后端和编译信息，重新校准 batch 后扩大 #! 范围。
-#
-# P4 实测 batch proof：连续/分散/随机、总量/均摊、独立操作计数和配对时间。
-# --batchproof-only 保留 P1-P3 数据；--large-timing 才启用大 k 重复计时。
+# C/Python 后端在 sha3.py 导入时绑定；各规模保留重叠点，计时独立校准 batch。
+# --batchproof-only 保留 P1-P3 数据；--scale large 扩大树和计时位置集合。
 
 if __name__ == '__main__':
     main()
