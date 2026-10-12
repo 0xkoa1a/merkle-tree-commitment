@@ -15,17 +15,16 @@
 - 对照 `tests/` 中的独立递归规格、固定编码样例和官方哈希答案，核对实现是否符合定义。
 - 最后读 [性能报告](results/性能与验证结果.md)，了解实测结果和计时范围；[作业要求](docs/作业要求.md) 保留课程原文。
 
-`commit(messages)` 返回公开承诺和承诺方的树状态；`state.open(index)` 返回消息与证明；`verify()` 使用验证者此前保存的承诺检查消息和位置。完整开封使用 `state.open_all()` 与 `verify_all()`。协议细节和安全假设集中在方案设计中。
+`commit(messages)` 返回公开承诺和承诺方的树状态；`tree.open(index)` 返回消息与证明；`verify()` 使用验证者此前保存的承诺检查消息和位置。完整开封使用 `tree.open_all()` 与 `verify_all()`。协议细节和安全假设集中在方案设计中。
 
 ## 测试与实验
 
 以下命令都在仓库根目录执行：
 
 - 正确性与安全回归：`PYTHONPATH=src python3 -B -m unittest discover -s tests -v`。
-- 低熵猜测演示：`PYTHONPATH=src python3 -B -m examples.privacy_experiment`。
 - 五组性能测量：`PYTHONPATH=src python3 -B -m benchmarks.benchmark --repetitions 5 --output-dir results-new`。
 
-先执行测试，再测性能。基准核对测量样本的有效开封和哈希次数，输出目录保存原始样本及报告。使用 `results-new` 可保留已有记录，`-B` 防止生成 Python 缓存。现有 `results/` 是提交 `2ff13ad` 的历史基线。
+先执行测试，再测性能。基准会先核对单项和完整开封，再记录计时、证明大小、逻辑存储量、哈希次数和 Keccak 置换次数。输出目录保存 `results.json`；最终性能说明见 `results/性能与验证结果.md`。`-B` 用于避免生成 Python 缓存。
 
 需要在其他程序中导入时，可在自己的虚拟环境运行 `python3 -m pip install -e .` 做可编辑安装。上面的源码运行命令不需要安装；打包工具可能需要获取 setuptools。
 
@@ -37,9 +36,9 @@
 | src/merkle_commitment/tree.py | 建树、开封和验证 |
 | src/merkle_commitment/sha3.py | SHA3-256 算法 |
 | tests/ | 协议回归、独立规格、140 条 NIST 向量及 v1 编码样例 |
-| examples/ | 基础演示和猜测实验 |
-| benchmarks/ | 性能采样与报告生成 |
+| examples/ | 基础开封演示 |
+| benchmarks/ | 性能与哈希工作量采样 |
 | docs/ | 方案设计、示意图和作业要求 |
-| results/ | 原始样本、执行日志和性能表格 |
+| results/ | 原始样本和性能说明 |
 
 实现代码构成 `merkle_commitment` 包，位于 `src/`；测试和辅助脚本单独组织。组员信息暂留空，提交前填写。合作修改使用独立分支和 Pull Request，协议或安全假设有变化时同步更新文档与测试。

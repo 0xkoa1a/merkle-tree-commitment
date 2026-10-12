@@ -14,6 +14,7 @@ MAX_U64 = (1 << 64) - 1
 VERSION_BYTES = 1
 U64_BYTES = 8
 DEPTH_BYTES = 2
+# 数量和索引使用 U64，所以合法二叉认证路径最多 64 层。
 MAX_PROOF_DEPTH = 64
 # 三种编码都先写版本，再写一个 8 字节整数（数量或索引）。
 INTEGER_END = VERSION_BYTES + U64_BYTES
@@ -46,20 +47,15 @@ def message_bytes(value: Message) -> bytes:
     """字符串先转成 UTF-8 字节；字节消息直接使用。"""
     if isinstance(value, str):
         return value.encode('utf-8')
-    if type(value) is not bytes:
+    if not isinstance(value, bytes):
         raise TypeError('message must be bytes or UTF-8 str')
     return value
 
 
-def _fixed_bytes(value: bytes, size: int, field: str) -> None:
-    if type(value) is not bytes or len(value) != size:
+def _validate_fixed_bytes(value: bytes, size: int, field: str) -> None:
+    """检查字节串是否符合给定的预期长度。"""
+    if not isinstance(value, bytes) or len(value) != size:
         raise ValueError(f'{field} must be exactly {size} bytes')
-
-
-def tree_depth(n: int) -> int:
-    """补齐到 2 的幂后，从叶子走到根需要多少步。"""
-    validate_leaf_count(n)
-    return (n - 1).bit_length()
 
 
 @dataclass(frozen=True)
@@ -70,7 +66,7 @@ class Commitment:
 
     def __post_init__(self) -> None:
         validate_leaf_count(self.leaf_count)
-        _fixed_bytes(self.root, HASH_BYTES, 'digest')
+        _validate_fixed_bytes(self.root, HASH_BYTES, 'digest')
 
     def to_bytes(self) -> bytes:
         """依次写入版本、叶子数量和承诺摘要。"""
@@ -79,10 +75,19 @@ class Commitment:
     @classmethod
     def from_bytes(cls, data: bytes) -> Commitment:
         """读回承诺；格式不完整或版本不对时抛出 ValueError。"""
-        if type(data) is not bytes or len(data) != COMMITMENT_BYTES or data[0] != VERSION:
+        if (
+            not isinstance(data, bytes)
+            or len(data) != COMMITMENT_BYTES
+            or data[0] != VERSION
+        ):
             raise ValueError('invalid commitment encoding')
-        return cls(int.from_bytes(data[VERSION_BYTES:INTEGER_END], 'big'),
-                   data[INTEGER_END:])
+        
+        leaf_count = int.from_bytes(
+            data[VERSION_BYTES:INTEGER_END],
+            'big',
+        )
+        root = data[INTEGER_END:]
+        return cls(leaf_count=leaf_count, root=root)
 
 
 @dataclass(frozen=True)
@@ -94,28 +99,68 @@ class MerkleProof:
 
     def __post_init__(self) -> None:
         validate_u64(self.index)
-        _fixed_bytes(self.nonce, NONCE_BYTES, 'opening randomness')
-        if type(self.siblings) is not tuple or len(self.siblings) > MAX_PROOF_DEPTH:
+        _validate_fixed_bytes(self.nonce, NONCE_BYTES, 'opening randomness')
+
+        if (type(self.siblings) is not tuple or len(self.siblings) > MAX_PROOF_DEPTH):
             raise ValueError('siblings must be a tuple of at most 64 digests')
+        
         for sibling in self.siblings:
-            _fixed_bytes(sibling, HASH_BYTES, 'digest')
+            _validate_fixed_bytes(sibling, HASH_BYTES, 'digest')
 
     def to_bytes(self) -> bytes:
         """依次写入版本、索引、随机值、路径长度和兄弟摘要。"""
-        return (bytes([VERSION]) + encode_u64(self.index) + self.nonce
-                + len(self.siblings).to_bytes(DEPTH_BYTES, 'big') + b''.join(self.siblings))
+        return (
+            bytes([VERSION])
+            + encode_u64(self.index)
+            + self.nonce
+            + len(self.siblings).to_bytes(DEPTH_BYTES, 'big')
+            + b''.join(self.siblings)
+        )
 
     @classmethod
     def from_bytes(cls, data: bytes) -> MerkleProof:
         """按路径长度读取兄弟摘要，多出或缺少字节都报 ValueError。"""
-        if type(data) is not bytes or len(data) < PROOF_HEADER_BYTES or data[0] != VERSION:
+        if (
+            not isinstance(data, bytes)
+            or len(data) < PROOF_HEADER_BYTES
+            or data[0] != VERSION
+        ):
             raise ValueError('invalid proof encoding')
+        
         depth = int.from_bytes(data[PROOF_NONCE_END:PROOF_HEADER_BYTES], 'big')
-        if depth > MAX_PROOF_DEPTH or len(data) != PROOF_HEADER_BYTES + HASH_BYTES * depth:
+
+        expected_length = PROOF_HEADER_BYTES + HASH_BYTES * depth
+        if depth > MAX_PROOF_DEPTH or len(data) != expected_length:
             raise ValueError('invalid proof length')
-        return cls(int.from_bytes(data[VERSION_BYTES:INTEGER_END], 'big'),
-                   data[INTEGER_END:PROOF_NONCE_END],
-                   tuple(data[i:i + HASH_BYTES] for i in range(PROOF_HEADER_BYTES, len(data), HASH_BYTES)))
+        
+        index = int.from_bytes(data[VERSION_BYTES:INTEGER_END], 'big')
+
+        nonce = data[INTEGER_END:PROOF_NONCE_END]
+
+        siblings = tuple(
+            data[offset:offset + HASH_BYTES]
+            for offset in range(
+                PROOF_HEADER_BYTES,
+                len(data),
+                HASH_BYTES,
+            )
+        )
+        
+        return cls(index=index, nonce=nonce, siblings=siblings)
+
+
+# TODO(B-MULTIPROOF): 主逻辑完成后再启用下列协议草案。
+# MULTIPROOF_SIBLING_COUNT_BYTES = 4
+# @dataclass(frozen=True)
+# class MultiProof:
+#     indices: Tuple[int, ...]      # 非空、严格递增、无重复
+#     nonces: Tuple[bytes, ...]     # 与 indices 一一对应
+#     siblings: Tuple[bytes, ...]   # 从下到上，同层位置递增
+#
+# v1 encoding:
+# version(1) || k(8) || indices(8*k) || nonces(32*k)
+# || sibling_count(4) || siblings(32*s)
+# total = 13 + 40*k + 32*s bytes
 
 
 @dataclass(frozen=True)
@@ -128,43 +173,65 @@ class FullOpening:
         if type(self.messages) is not tuple or type(self.nonces) is not tuple:
             raise ValueError('full opening requires immutable tuples')
         validate_leaf_count(len(self.messages))
+
         if len(self.messages) != len(self.nonces):
             raise ValueError('message/nonce counts differ')
+        
         for value in self.messages:
-            if type(value) is not bytes:
+            if not isinstance(value, bytes):
                 raise TypeError('encoded messages must be bytes')
-            validate_u64(len(value))
+            
         for nonce in self.nonces:
-            _fixed_bytes(nonce, NONCE_BYTES, 'opening randomness')
+            _validate_fixed_bytes(nonce, NONCE_BYTES, 'opening randomness')
 
     def to_bytes(self) -> bytes:
         """写入版本和数量，再逐项写入消息长度、消息和随机值。"""
-        return (bytes([VERSION]) + encode_u64(len(self.messages))
-                + b''.join(encode_u64(len(m)) + m + r
-                           for m, r in zip(self.messages, self.nonces)))
+        return (
+            bytes([VERSION])
+            + encode_u64(len(self.messages))
+            + b''.join(
+                encode_u64(len(message)) + message + nonce
+                for message, nonce in zip(self.messages, self.nonces)
+            )
+        )
 
     @classmethod
     def from_bytes(cls, data: bytes) -> FullOpening:
         """用每项的长度找到消息末尾，紧接着读取 32 字节随机值。"""
-        if type(data) is not bytes or len(data) < FULL_HEADER_BYTES or data[0] != VERSION:
+        if (
+            not isinstance(data, bytes)
+            or len(data) < FULL_HEADER_BYTES
+            or data[0] != VERSION
+        ):
             raise ValueError('invalid full opening encoding')
-        n = int.from_bytes(data[VERSION_BYTES:INTEGER_END], 'big')
-        if n == 0 or n > (len(data) - FULL_HEADER_BYTES) // (U64_BYTES + NONCE_BYTES):
+
+        leaf_count = int.from_bytes(
+            data[VERSION_BYTES:INTEGER_END],
+            'big',
+        )
+        if leaf_count == 0:
             raise ValueError('invalid full opening count')
-        messages, nonces, offset = [], [], FULL_HEADER_BYTES
-        for _ in range(n):
+
+        messages = []
+        nonces = []
+        offset = FULL_HEADER_BYTES
+        for _ in range(leaf_count):
             if offset + U64_BYTES > len(data):
                 raise ValueError('truncated message length')
-            length = int.from_bytes(data[offset:offset + U64_BYTES], 'big')
+
+            message_length = int.from_bytes(
+                data[offset:offset + U64_BYTES],
+                'big',
+            )
             offset += U64_BYTES
-            end = offset + length
-            if end + NONCE_BYTES > len(data):
+            message_end = offset + message_length
+            nonce_end = message_end + NONCE_BYTES
+            if nonce_end > len(data):
                 raise ValueError('truncated message or nonce')
-            messages.append(data[offset:end])
-            nonces.append(data[end:end + NONCE_BYTES])
-            offset = end + NONCE_BYTES
+            messages.append(data[offset:message_end])
+            nonces.append(data[message_end:nonce_end])
+            offset = nonce_end
+
         if offset != len(data):
             raise ValueError('trailing full opening bytes')
-        return cls(tuple(messages), tuple(nonces))
-
-
+        return cls(messages=tuple(messages), nonces=tuple(nonces))
