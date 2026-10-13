@@ -1,6 +1,13 @@
+| 姓名 | 学号 |
+|------|------|
+| |  |
+| |  | 
+| 陈赐炜 | 2601210605 |
+
+
 # Merkle Tree Commitment
 
-应用密码学课程作业：用手写 SHA3-256 和 Merkle 树承诺一组消息，支持单项、批量和完整开封。保留 Python 实现，并提供自写 C 哈希后端。
+应用密码学秋第一次课程作业：用手写 SHA3-256 和 Merkle 树承诺一组消息，支持单项、批量和完整开封。保留 Python 实现，并提供自写 C 哈希后端。
 
 ## 安装与演示
 
@@ -68,7 +75,6 @@ PYTHONPATH=src .venv/bin/python -B tools/compare_backends.py
 - [方案设计](docs/方案设计.md)：算法、安全分析及 Python 教学参考结果。
 - [C 扩展介绍及次要组实验结果](docs/C扩展介绍及次要组实验结果.md)：C 实现、大规模结果及噪声说明。
 - 运行原始结果：[Python/mid](all-outputs/python-mid/实验结果.md)、[C/large](all-outputs/c-large/实验结果.md)、[后端配对比较](all-outputs/backend-comparison/实验结果.md)。
-- [作业要求](docs/作业要求.md)：课程原文。
 
 `all-outputs/` 保存动态 JSON、SVG 和结果提示；`docs/assets/` 保存带日期与随机标识的静态标本。采样和重绘不会自动修改文档标本。
 
