@@ -1,6 +1,6 @@
 # C 扩展介绍及次要组实验结果
 
-这里保存 C/large 的完整八个分布实验、四个性能实验，以及固定规模的 Python/C 后端对比。课堂主展示位于 [方案设计](方案设计.md)，使用 Python 中等规模数据；本组不是主文图和数据的替代来源。
+这里保存 C/large（大规模实验）的完整八个分布实验、四个性能实验，以及固定规模的 Python/C 后端对比。
 
 文档图是 C/large 参考数据的静态标本，位于 docs/assets/c-large-2026-10-13-4cd9ad/；运行产物位于 all-outputs/c-large/，其中 jsons/ 保存原始数据、svgs/ 保存运行图。固定规模的后端配对比较另存于 all-outputs/backend-comparison/jsons/backend-comparison.json，不归作 large 规模测量。大规模 JSON 只保留在本地，不纳入 Git；图、说明和小型对比 JSON 可随项目分享。C 实现仍在 `src/merkle_commitment/`，并未回退。
 

@@ -96,4 +96,4 @@ PYTHONPATH=src .venv/bin/python -B tools/compare_backends.py
 | all-outputs/ | 按运行组保存的 JSON、SVG 和实验结果提示 |
 | docs/assets/ | 文档采用的静态图快照，与运行产物分开 |
 
-实现代码构成 `merkle_commitment` 包，位于 `src/`；测试和辅助脚本单独组织。组员信息暂留空，提交前填写。合作修改使用独立分支和 Pull Request，协议或安全假设有变化时同步更新文档与测试。
+实现代码构成 `merkle_commitment` 包，位于 `src/`；测试和辅助脚本单独组织。
